@@ -1,0 +1,91 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 1433 >>
+stream
+0 0 0 rg
+0 0 595 842 re f
+BT
+/F1 26 Tf
+1 1 1 rg
+1 0 0 1 56 700 Tm
+(Ishant Shrivastava) Tj
+/F1 13 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 660 Tm
+(AI/ML Engineer  |  Indore, Madhya Pradesh, India) Tj
+/F1 13 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 640 Tm
+(ishantshrivastava778@gmail.com  |  +91 6266826122) Tj
+/F1 17 Tf
+1 1 1 rg
+1 0 0 1 56 596 Tm
+(This is a placeholder.) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 570 Tm
+(Replace public/resume.pdf with your real resume before you deploy.) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 552 Tm
+(Filename in the spec: Ishant_Shrivastava_Resume.pdf) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 516 Tm
+(Update it to match the content decisions applied on the site:) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 496 Tm
+(  -  Ascentt AITek shown as Feb 2025 - Present \(no trainee split\)) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 478 Tm
+(  -  Experience described as ~1.5 years, not a month count) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 460 Tm
+(  -  Auranova spelled as one word) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 442 Tm
+(  -  Kisaan Vani spelling used throughout) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 406 Tm
+(Also confirm before publishing:) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 386 Tm
+(  -  Whether the PPE ~85% figure is mAP, precision, or overall accuracy) Tj
+/F1 12 Tf
+0.75 0.75 0.75 rg
+1 0 0 1 56 368 Tm
+(  -  That the OmniTrace test counts \(239 backend / 95 frontend\) still hold) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001726 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1823
+%%EOF

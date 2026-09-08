@@ -1,0 +1,16 @@
+Inter is licensed under the SIL Open Font License, Version 1.1.
+
+Copyright (c) 2016-present The Inter Project Authors.
+https://github.com/rsms/inter
+
+The file inter-latin-wght-normal.woff2 is the latin variable-weight subset,
+taken from the @fontsource-variable/inter distribution.
+
+Full licence text: https://openfontlicense.org/
+
+PERMISSION IS HEREBY GRANTED, FREE OF CHARGE, to any person obtaining a copy of
+the Font Software, to use, study, copy, merge, embed, modify, redistribute, and
+sell modified and unmodified copies of the Font Software, subject to the
+conditions of the SIL OFL 1.1 — principally that the Font Software may not be
+sold by itself, that copyright and licence notices are retained, and that
+modified versions do not use the Reserved Font Name.

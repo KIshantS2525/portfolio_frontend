@@ -1,0 +1,572 @@
+/* src/index.css */
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Inter, variable, self-hosted. It is the spec's stated fallback for
+   PPNeueMontreal and — critically — it has a genuine 200 weight, which is what
+   carries the ultra-light body copy. Served from our own origin, so there is no
+   request to Google on first paint. SIL Open Font License 1.1 (see fonts/OFL.txt).
+--------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('./fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --font-inter: 'Inter Variable';
+}
+
+/* ---------------------------------------------------------------------------
+   Design tokens — §2 of the build spec.
+   Hierarchy comes from scale, not weight. Nothing above 42px is heavier than 400.
+--------------------------------------------------------------------------- */
+
+
+@import './styles/theme.generated.css';
+
+@theme {
+  /* Utilities point at the theme variables, so every `text-bone`, `bg-void`
+     and `text-saffron` already in the components flips with no edits. */
+  --color-void: var(--surface);
+  --color-bone: var(--text);
+  --color-ash: var(--text-muted);
+  --color-mist: var(--text-body);
+  --color-iris: var(--accent);
+  --color-saffron: var(--emphasis);
+  --color-verdant: var(--tertiary);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --spacing-6: 6px;
+  --spacing-12: 12px;
+  --spacing-18: 18px;
+  --spacing-24: 24px;
+  --spacing-30: 30px;
+  --spacing-36: 36px;
+  --spacing-60: 60px;
+  --spacing-96: 96px;
+  --spacing-120: 120px;
+
+  --radius-nav: 24px;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --page-max: 1280px;
+    --gutter: clamp(20px, 5vw, 60px);
+  }
+
+  * {
+    border-color: var(--hairline);
+    min-width: 0;
+  }
+
+  html {
+    background: var(--surface);
+    transition: background-color 320ms var(--ease-out-expo);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--surface);
+    color: var(--text);
+    transition:
+      background-color 320ms var(--ease-out-expo),
+      color 320ms var(--ease-out-expo);
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01' on, 'cv05' on;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: clip;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  /* Visible, branded, keyboard-only focus. Never removed. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--surface);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  /* Lenis */
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Type scale. Sizes fluid where they need to survive 375px.
+--------------------------------------------------------------------------- */
+
+@utility t-caption {
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+@utility t-nav {
+  font-size: 14px;
+  line-height: 1.2;
+  letter-spacing: 0.35px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+@utility t-body {
+  font-size: clamp(16px, 1.1vw, 18px);
+  line-height: 1.5;
+  font-weight: 200;
+}
+
+@utility t-heading-2xs {
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: -0.48px;
+  font-weight: 400;
+}
+
+@utility t-heading-xs {
+  font-size: clamp(21px, 2.1vw, 27px);
+  line-height: 1.1;
+  font-weight: 400;
+}
+
+@utility t-subheading {
+  font-size: clamp(26px, 3vw, 36px);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 400;
+}
+
+@utility t-heading-sm {
+  font-size: clamp(28px, 4vw, 42px);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  font-weight: 400;
+}
+
+@utility t-heading {
+  font-size: clamp(32px, 5vw, 48px);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  font-weight: 400;
+}
+
+@utility t-heading-lg {
+  font-size: clamp(38px, 7vw, 78px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-weight: 400;
+}
+
+@utility t-display {
+  font-size: clamp(44px, 8.6vw, 113px);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+  font-weight: 400;
+}
+
+@utility shell {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* ---------------------------------------------------------------------------
+   Motion. One orchestrated entrance, nothing ambient that isn't the graph.
+--------------------------------------------------------------------------- */
+
+@utility reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 460ms var(--ease-out-expo),
+    transform 460ms var(--ease-out-expo);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+
+@utility reveal-in {
+  opacity: 1;
+  transform: none;
+}
+
+@layer components {
+  /*
+   * Liquid glass. Every "card" in the site used to be a 1px hairline with a
+   * fully transparent fill, which reads as barely-there boundary rather than
+   * an actual surface. This gives it a frosted, slightly tinted body instead:
+   * blurred + saturated backdrop, a tint-derived border brighter than the
+   * plain hairline, and a soft inner top sheen for depth — while staying
+   * translucent enough that the page behind it (ambient field, gradients)
+   * still shows through.
+   *
+   * `--glass-tint` defaults to the general-purpose tint and is overridden by
+   * the `.glass-*` kind modifiers below, each pointing at its own themeable
+   * CSS variable (see theme.ts `cardTints` + the admin Colors tab).
+   *
+   * The colour math: color-mix's two percentages intentionally don't sum to
+   * 100 — the shortfall is CSS's built-in way of producing a translucent
+   * result from two fully opaque inputs, which is what lets backdrop-filter
+   * actually do something visible through it.
+   */
+  .glass-card {
+    --glass-tint: var(--glass-tint-base);
+    position: relative;
+    isolation: isolate;
+    background: color-mix(in srgb, var(--glass-tint) 15%, var(--surface-raised) 70%);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    border: 1px solid color-mix(in srgb, var(--glass-tint) 42%, var(--hairline) 58%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 20%, transparent),
+      0 8px 30px color-mix(in srgb, black 22%, transparent);
+    overflow: hidden;
+  }
+  /*
+   * The sheen: a soft diagonal highlight across the top, the way light
+   * catches the top edge of an actual pane of glass. This is what reads as
+   * "glass" in a static screenshot — the blur alone doesn't sell it when
+   * there's nothing colourful directly behind the card to blur, which is
+   * most of the time on a mostly-black page.
+   */
+  .glass-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, white 14%, transparent) 0%,
+      color-mix(in srgb, white 3%, transparent) 22%,
+      transparent 45%
+    );
+    pointer-events: none;
+  }
+  .glass-project {
+    --glass-tint: var(--glass-tint-project);
+  }
+  .glass-tech {
+    --glass-tint: var(--glass-tint-tech);
+  }
+  .glass-role {
+    --glass-tint: var(--glass-tint-role);
+  }
+  .glass-achievement {
+    --glass-tint: var(--glass-tint-achievement);
+  }
+  @supports not (backdrop-filter: blur(1px)) {
+    /* No backdrop-filter support: make up for the lost frosting with more fill. */
+    .glass-card {
+      background: color-mix(in srgb, var(--glass-tint) 15%, var(--surface-raised) 92%);
+    }
+  }
+
+  /* The single filled pill. One per view. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.35px;
+    text-transform: uppercase;
+    padding: 15px 26px;
+    border-radius: 9999px;
+    transition:
+      transform 220ms var(--ease-out-expo),
+      background-color 220ms var(--ease-out-expo);
+  }
+  .pill:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+  }
+  .pill:active {
+    transform: translateY(0);
+  }
+
+  /* Ghost text action. No container, no arrow glyph. */
+  .ghost {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.35px;
+    text-transform: uppercase;
+    padding-block: 15px;
+    position: relative;
+    transition: color 220ms var(--ease-out-expo);
+  }
+  .ghost::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 100%;
+    bottom: 11px;
+    height: 1px;
+    background: currentColor;
+    transition: right 320ms var(--ease-out-expo);
+  }
+  .ghost:hover {
+    color: var(--text);
+  }
+  .ghost:hover::after {
+    right: 0;
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    line-height: 1.5;
+    font-weight: 400;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .hairline {
+    height: 1px;
+    background: var(--hairline);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+ * Ask AI answers, rendered from Markdown (see components/chat/Markdown.tsx).
+ * Kept deliberately close to plain body copy — this is prose in a chat
+ * bubble, not a rendered document — with just enough structure for bold,
+ * lists, code and tables to read correctly instead of showing raw ** and |.
+ */
+.markdown-body {
+  font-size: inherit;
+  line-height: inherit;
+}
+.markdown-body > * + * {
+  margin-top: 12px;
+}
+.markdown-body strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.markdown-body em {
+  font-style: italic;
+}
+.markdown-body a {
+  color: var(--accent-text);
+  text-underline-offset: 3px;
+  text-decoration: underline;
+}
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 22px;
+}
+.markdown-body ul {
+  list-style: disc;
+}
+.markdown-body ol {
+  list-style: decimal;
+}
+.markdown-body li + li {
+  margin-top: 4px;
+}
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.markdown-body pre {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  padding: 14px 16px;
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+}
+.markdown-body blockquote {
+  border-left: 2px solid var(--hairline);
+  padding-left: 14px;
+  color: var(--text-muted);
+}
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--hairline);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-body th {
+  color: var(--text);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.markdown-body tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+/* Streaming chat: each chunk fades in as it arrives. */
+@keyframes token-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+  }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes flap-in {
+  from {
+    transform: rotateX(-88deg);
+    opacity: 0.2;
+  }
+  to {
+    transform: rotateX(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.token {
+  animation: token-in 380ms var(--ease-out-expo) both;
+}
+.pulse-dot {
+  animation: soft-pulse 1200ms ease-in-out infinite;
+}
+.caret {
+  animation: caret 1000ms step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-field span {
+    transform: none !important;
+  }
+}
+
+/*
+ * Where the pull-cord hangs. Right-aligned near the nav's own right-hand
+ * cluster (menu / theme control / Ask AI pill) rather than dead centre, and
+ * tinted from the theme's own muted-text colour so the rope reads as rope in
+ * both themes instead of being a fixed white that only works on dark.
+ */
+.theme-pullcord {
+  --pullcord-top: 0px;
+  --pullcord-right: 8.5rem;
+  --pullcord-z: 60;
+  --pullcord-ink: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+@media (max-width: 640px) {
+  .theme-pullcord {
+    --pullcord-right: 4.5rem;
+  }
+}
+
+/* The slow side-to-side wobble on the Ask AI section's second graph — see AskGraph.tsx. */
+@keyframes ask-graph-drift {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4%);
+  }
+}
+.ask-graph-drift {
+  animation: ask-graph-drift 16s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-graph-drift {
+    animation: none;
+  }
+}

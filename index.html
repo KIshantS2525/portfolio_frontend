@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="dark" />
+
+    <title>Ishant Shrivastava — AI/ML Engineer</title>
+    <meta
+      name="description"
+      content="AI/ML engineer in Indore. Computer vision, RAG pipelines and on-device inference — shipped to production."
+    />
+    <link rel="canonical" href="https://ishant.dev/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preload" as="image" href="/og-image.svg" fetchpriority="low" />
+
+    <meta property="og:type" content="profile" />
+    <meta property="og:title" content="Ishant Shrivastava — AI/ML Engineer" />
+    <meta
+      property="og:description"
+      content="Computer vision, RAG pipelines and on-device inference — shipped to production."
+    />
+    <meta property="og:url" content="https://ishant.dev/" />
+    <meta property="og:image" content="https://ishant.dev/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Ishant Shrivastava — AI/ML Engineer" />
+    <meta
+      name="twitter:description"
+      content="Computer vision, RAG pipelines and on-device inference — shipped to production."
+    />
+    <meta name="twitter:image" content="https://ishant.dev/og-image.png" />
+
+    <!--
+      There is no server rendering in a Vite SPA, so a crawler that does not run
+      JavaScript sees only this file. Everything a crawler needs — the title,
+      the description, Open Graph, and the Person structured data — is therefore
+      static here rather than injected at runtime.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "name": "Ishant Shrivastava",
+        "jobTitle": "AI/ML Engineer",
+        "email": "mailto:ishantshrivastava778@gmail.com",
+        "url": "https://ishant.dev",
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Indore",
+          "addressRegion": "Madhya Pradesh",
+          "addressCountry": "IN"
+        },
+        "worksFor": { "@type": "Organization", "name": "Ascentt AITek Pvt. Ltd." },
+        "alumniOf": {
+          "@type": "CollegeOrUniversity",
+          "name": "Acropolis Institute of Technology and Research, Indore (RGPV)"
+        },
+        "knowsAbout": [
+          "Computer Vision", "YOLOv8", "Detectron2", "ONNX Runtime", "Qualcomm QNN",
+          "RAG", "LangChain", "FAISS", "FastAPI", "PyTorch", "Edge Inference"
+        ],
+        "sameAs": [
+          "https://github.com/KIshantS2525",
+          "https://linkedin.com/in/ishant-shrivastava-481b45255",
+          "https://diagramstudio.in"
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <script>
+      // Runs before first paint so there is never a flash of the wrong theme.
+      // Explicit choice wins; otherwise follow the OS; otherwise dark, because
+      // the void is the brand.
+      (function () {
+        try {
+          var stored = localStorage.getItem('ishant:theme');
+          var theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+          document.documentElement.dataset.theme = theme;
+          document
+            .querySelector('meta[name="theme-color"]')
+            .setAttribute('content', theme === 'light' ? '#ffffff' : '#000000');
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
+    <div id="root"></div>
+    <noscript>
+      <p style="color: #fff; background: #000; font-family: sans-serif; padding: 24px">
+        Ishant Shrivastava — AI/ML Engineer, Indore. This portfolio needs JavaScript.
+        Reach me at ishantshrivastava778@gmail.com.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

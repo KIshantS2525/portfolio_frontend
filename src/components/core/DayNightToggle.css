@@ -1,0 +1,180 @@
+/*
+ * Day/night switch.
+ *
+ * The artwork is authored at its native 200x90 and then scaled down with a
+ * transform, so every offset from the original stays exact instead of being
+ * re-derived by hand. The wrapper carries the scaled box so it occupies the
+ * right space in the header rather than leaving a gap.
+ *
+ * The original had a drop shadow. Dropped here: §2.5 of the spec says no
+ * shadows, and the control reads fine without one.
+ */
+
+.daynight {
+  --dn-scale: 0.4;
+  position: relative;
+  display: block;
+  width: calc(200px * var(--dn-scale));
+  height: calc(90px * var(--dn-scale));
+  flex: none;
+}
+
+/*
+ * The artwork lives inside a stage at its native 200x90 and the STAGE is what
+ * gets scaled. Scaling each child individually looked right at first and was
+ * wrong: `top: 41px` is not affected by a transform, so every element below the
+ * 36px wrapper was clipped away and the horizon, ridges and orb vanished.
+ */
+.dn-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 200px;
+  height: 90px;
+  transform: scale(var(--dn-scale));
+  transform-origin: top left;
+}
+
+.daynight input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* Everything below is authored at native size inside a scaled stage. */
+.daynight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 100px;
+  pointer-events: none;
+}
+
+.dn-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  width: 200px;
+  height: 90px;
+  border-radius: 100px;
+  overflow: hidden;
+  background-image: linear-gradient(to bottom, var(--toggle-band-1), var(--toggle-band-2));
+  transition: background-image 400ms ease;
+  z-index: 1;
+}
+
+/* The knob. */
+.dn-slider::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  height: 70px;
+  width: 70px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 9;
+}
+
+.dn-bg,
+.dn-orb,
+.dn-star,
+.dn-cloud,
+.dn-mountain {
+  position: absolute;
+  pointer-events: none;
+}
+
+.daynight {
+  overflow: hidden;
+  border-radius: 100px;
+}
+
+.dn-bg {
+  top: 41px;
+  left: -4px;
+  z-index: 6;
+}
+
+.dn-orb {
+  left: 117px;
+  top: 20px;
+  z-index: 5;
+  transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dn-star {
+  border-radius: 50%;
+  background-color: #fffeda;
+  transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 4;
+}
+
+.dn-star-1 { top: 20px; left: 15px; }
+.dn-star-2 { top: 9px;  left: 31px; }
+.dn-star-3 { top: 12px; left: 65px; }
+.dn-star-4 { top: 7px;  left: 94px; }
+.dn-star-5 { top: 38px; left: 94px; }
+.dn-star-6 { top: 21px; left: 100px; }
+.dn-star-7 { top: 13px; left: 115px; }
+.dn-star-8 { top: 11px; left: 139px; }
+.dn-star-9 { top: 8px;  left: 159px; }
+.dn-star-10 { top: 21px; left: 163px; }
+.dn-star-11 { top: 22px; left: 179px; }
+
+.dn-size-1 { width: 1px; height: 1px; }
+.dn-size-2 { width: 2px; height: 2px; }
+.dn-size-3 { width: 3px; height: 3px; }
+.dn-size-4 { width: 4px; height: 4px; }
+
+.dn-cloud {
+  transform: translateY(200px);
+  transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 8;
+}
+
+.dn-cloud-1 { top: 14px; left: 19px; }
+.dn-cloud-2 { top: 25px; left: 84px; }
+.dn-cloud-3 { top: 7px;  left: 106px; }
+
+.dn-mountain { z-index: 7; }
+.dn-mountain-1 { top: 31px; left: -28px; }
+.dn-mountain-2 { top: 38px; left: 23px; }
+.dn-mountain-3 { top: 36px; left: 86px; }
+.dn-mountain-4 { top: 36px; left: 125px; }
+
+/* ── checked = day ──────────────────────────────────────────────────────── */
+
+.daynight input:checked ~ .dn-slider::before {
+  transform: translateX(110px);
+}
+
+.daynight input:checked ~ .dn-orb {
+  transform: translateX(-80px) translateY(-2px);
+}
+
+.daynight input:checked ~ .dn-star {
+  transform: translateY(-200px);
+}
+
+.daynight input:checked ~ .dn-cloud {
+  transform: translateY(0);
+}
+
+.daynight input:focus-visible ~ .dn-slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dn-slider,
+  .dn-slider::before,
+  .dn-orb,
+  .dn-star,
+  .dn-cloud {
+    transition: none;
+  }
+}
