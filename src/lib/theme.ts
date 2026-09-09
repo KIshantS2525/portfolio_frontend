@@ -107,7 +107,7 @@ const dark: Palette = {
   accent: '#8052ff', //     4.6:1
   accentHover: '#8f66ff',
   accentInk: '#ffffff', //  4.6:1 on the fill
-  accentText: '#8052ff',
+  accentText: '#ffb829', //  Saffron Spark — Dala's spec reserves amber for accent links, not violet
   emphasis: '#ffb829', //  12.1:1
   tertiary: '#15846e', //   4.6:1
 
@@ -154,82 +154,93 @@ const dark: Palette = {
 };
 
 /**
- * Light — cream paper and marker orange. Deliberately its own personality
- * rather than an inverted void: ink and highlighter on notebook stock.
+ * Light — General Intelligence Company's editorial register. Warm parchment
+ * canvas, near-neutral ink, and exactly one chromatic accent (Signal Blue)
+ * used the way the spec insists on: as a border and as text, never as a
+ * background fill. The only filled surface in the whole theme is Dusk, and
+ * it appears on a single button variant — everything else is paper, hairline
+ * and ink, the same restraint the reference system uses throughout.
  *
- * Two of the source tokens could not be used as given:
- *   · Marker Orange #ff6f1e is 2.70:1 on cream — it fails as text. It is kept
- *     as the button FILL, with Cocoa Ink on top at 6.02:1, which is both
- *     accessible and more on-brand than white would have been.
- *   · Burnt Sienna #ce500a is 4.26:1 — large text only. Links and 12px labels
- *     use #b84708 (5.2:1) so captions stay readable.
- * The sticker colours (Sky, Bubblegum) are decorative per the brief, so they
- * appear only in the constellation's ambient particle field — never in UI.
+ *   · Signal Blue #41a1cf is 2.9:1 on Parchment — too low for body text, so
+ *     it is reserved for large text, borders and 15px+ labels, matching the
+ *     reference's own "outlined action" role for the colour.
+ *   · Dusk #1f1f29 is the sole filled surface (buttons only, per spec) and
+ *     doubles as the deepest graph/card tint so a handful of elements still
+ *     read as "ink" rather than "grey" against the warm canvas.
+ *   · Cerulean #0081c0 is the rare saturated punctuation colour — used only
+ *     as the constellation's focal node and a card tint, never as UI chrome.
  */
 const light: Palette = {
-  surface: '#fdfbf9', //        Cream Paper
-  surfaceRaised: '#f7efe9', //  Dew Drop
+  surface: '#fefffc', //        Parchment
+  surfaceRaised: '#ffffff', //  Paper
 
-  text: '#2b1a07', //      Cocoa Ink       16.2:1
-  textBody: '#43341f', //  derived cocoa   11.6:1
-  textMuted: '#726352', //  derived cocoa   5.6:1
+  text: '#2c2c2c', //      Graphite       14.6:1
+  textBody: '#444141', //  Charcoal       10.6:1
+  textMuted: '#646464', //  Ash            6.3:1
 
-  accent: '#ff6f1e', //     Marker Orange — fill only
-  accentHover: '#f2600d',
-  accentInk: '#2b1a07', //  Cocoa Ink on orange, 6.0:1
-  accentText: '#b84708', //  deepened sienna, 5.2:1
-  emphasis: '#b84708', //   5.2:1
-  tertiary: '#137a39', //   deepened sprout, 5.3:1
+  accent: '#1f1f29', //     Dusk — the system's one filled surface, buttons only
+  accentHover: '#282834', //  Twilight
+  accentInk: '#ffffff', //  white on Dusk, 15.9:1
+  accentText: '#0f7ea3', //  deepened Signal Blue, 4.7:1 — readable as link/label text
+  emphasis: '#0f7ea3', //   deepened Signal Blue, 4.7:1
+  tertiary: '#0081c0', //   Cerulean — rare vivid punctuation, decorative use only
 
-  hairline: 'rgba(43, 26, 7, 0.26)',
-  shadow: '0 2px 0 rgba(43, 26, 7, 0.06), 0 10px 24px rgba(190, 188, 187, 0.5)',
-  scrollbarThumb: '#ded7d0',
-  scrollbarThumbHover: '#c8bfb6',
+  hairline: '#dee2de', //  Mist — the green-tinted hairline is the system's signature edge
+  shadow: 'rgba(0, 0, 0, 0.08) 0px 1px 1px 0px, rgba(0, 0, 0, 0.08) 0px 4px 5px 0px',
+  scrollbarThumb: '#dee2de',
+  scrollbarThumbHover: '#b4b8b4',
 
   toggle: {
-    band: ['#abfaff', '#d5ffab'],
-    sky: ['#9fdef2', '#a8ffac'],
-    orb: ['#f6f061', '#61edf6'],
-    ridge: ['#86d2a0', '#517d91'],
+    band: ['#9fdef2', '#41a1cf'],
+    sky: ['#41a1cf', '#0081c0'],
+    orb: ['#dee2de', '#41a1cf'],
+    ridge: ['#646464', '#282834'],
   },
 
   graph: {
     /*
-     * Light-mode graph palette. Rebalanced for what actually needs to happen
-     * on cream paper:
-     *  - `person` (the queen-bee node in the middle) is Marker Orange, the
-     *    same accent the CTA button uses. Cocoa ink at 3px was fine for
-     *    body text but reads as a dead dark speck when it's meant to be the
-     *    focal point of a graph animation — the whole thing orbits it.
-     *  - `role` and `project` are kept distinct: Sienna for role (deep,
-     *    stable), Marker Orange for project (bright, primary). In dark mode
-     *    they were both purple; here they'd both be sienna, which lost the
-     *    hub-vs-project distinction against the beige backdrop.
-     *  - `domain` (deep sprout) and `tech` (deep bubblegum, not orange) get
-     *    real hue separation from role/project so the graph doesn't read as
-     *    a monochrome orange cloud in light mode.
+     * Light-mode graph palette, built as an ink wash rather than a set of
+     * hues. The first pass had this exactly backwards: `tech` is by far the
+     * most numerous kind — up to 45 of them against two roles — and it was set
+     * to Graphite, so the densest layer of the constellation was also the
+     * heaviest and the whole field read as dirt scattered on the page.
+     *
+     * Here the tonal weight tracks importance instead of accident of count.
+     * Cerulean marks the person (the system's one saturated colour, spent on
+     * the one node that earns it), Signal Blue the roles, then the ink scale
+     * steps down through Twilight and Charcoal for projects and achievements
+     * to Ash for domains and Fog for the tech swarm. The many small dots are
+     * now the lightest thing in the field, which is what lets the paper stay
+     * paper. Hue separation isn't needed to tell the kinds apart at this
+     * density — value separation does it, and stays inside the reference
+     * system's near-monochrome discipline.
      */
-    person: '#ff6f1e', //     Marker Orange — the queen bee.
-    role: '#b84708', //       deepened sienna
-    project: '#ff6f1e', //    Marker Orange
-    domain: '#137a39', //     deep sprout
-    tech: '#c2185b', //       deep bubblegum — sits opposite orange on the wheel
-    achievement: '#2b1a07', // Cocoa ink
-    link: '#2b1a07',
-    // Sticker colours live here and only here.
-    ambient: ['#ff6f1e', '#3b82f6', '#ff66cf', '#22c55e', '#b84708'],
-    linkAlpha: 0.16,
-    dimAlpha: 0.16,
-    ambientScale: 1.3,
+    person: '#0081c0', //      Cerulean — the queen bee, and the only saturated node.
+    role: '#41a1cf', //        Signal Blue
+    project: '#282834', //     Twilight
+    achievement: '#444141', // Charcoal
+    domain: '#646464', //      Ash
+    tech: '#b4b8b4', //        Fog — the swarm, deliberately the quietest.
+    link: '#646464',
+    /*
+     * Decorative only. These drift across the whole page behind the content,
+     * so anything with real weight in here reads as a smudge on the canvas
+     * rather than a distant node — hence blues and the two lightest neutrals,
+     * nothing from the dark end of the scale.
+     */
+    ambient: ['#41a1cf', '#8fc4dd', '#0081c0', '#c9d2ce', '#dee2de'],
+    linkAlpha: 0.14,
+    dimAlpha: 0.14,
+    ambientScale: 1.1,
     linkWidth: 0.3,
   },
 
   cardTints: {
-    base: '#2b1a07',
-    project: '#ff6f1e',
-    tech: '#c2185b',
-    role: '#b84708',
-    achievement: '#137a39',
+    base: '#1f1f29',
+    project: '#41a1cf',
+    tech: '#0081c0',
+    role: '#282834',
+    achievement: '#444141',
   },
 };
 

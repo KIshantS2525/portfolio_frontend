@@ -19,8 +19,32 @@
     U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/* ---------------------------------------------------------------------------
+   Fraunces, variable, self-hosted. The light theme is the editorial register —
+   warm paper, a serif that reads like a printed page — and the style reference
+   names Fraunces as the substitute for its custom display serif. Both the
+   optical-size and weight axes are live, so `font-optical-sizing: auto` gives
+   the 113px display type genuinely finer serifs than the 42px headings rather
+   than the same letterforms scaled up. Latin subset only, and because it is
+   only ever applied under [data-theme='light'], dark-mode visitors never
+   download it. SIL Open Font License 1.1 (see fonts/OFL-Fraunces.txt).
+--------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Fraunces Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('./fonts/fraunces-latin-opsz-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   --font-inter: 'Inter Variable';
+  --font-fraunces: 'Fraunces Variable', 'Iowan Old Style', 'Palatino Linotype',
+    Palatino, Georgia, ui-serif, serif;
 }
 
 /* ---------------------------------------------------------------------------
@@ -65,6 +89,63 @@
     color-scheme: dark;
     --page-max: 1280px;
     --gutter: clamp(20px, 5vw, 60px);
+
+    /*
+     * The two themes are different design languages, not one palette flipped.
+     * Dark is the Dala void: geometric sans at every size, frosted translucent
+     * cards floating on black. Light is the editorial register: a display
+     * serif, opaque paper cards, hairline rules, no glow. Everything either
+     * theme needs to say about *material* — typeface, card fill, card edge,
+     * sheen, shadow, blur — is a token here, so the components below are
+     * written once and both worlds fall out of these values.
+     *
+     * Note these are mix RATIOS, not finished colours. The obvious version of
+     * this — `--glass-fill: color-mix(in srgb, var(--glass-tint) 15%, ...)`
+     * declared right here — is silently broken: a custom property's value is
+     * substituted at the element where it is *declared*, and `--glass-tint`
+     * does not exist on :root (it is set per-card, on .glass-card). The mix
+     * therefore resolves against nothing, `--glass-fill` computes to the
+     * guaranteed-invalid value, and `background: var(--glass-fill)` falls back
+     * to no background whatsoever. The card goes fully transparent and
+     * backdrop-filter smears whatever is behind it across the entire surface.
+     * Ratios travel safely because they are plain tokens; the color-mix that
+     * consumes them lives on .glass-card, where the tint is in scope.
+     */
+    --font-display: var(--font-inter);
+
+    --glass-tint-mix: 15%;
+    --glass-surface-mix: 70%;
+    --glass-surface-mix-opaque: 92%;
+    --glass-edge-tint-mix: 42%;
+    --glass-edge-hairline-mix: 58%;
+    --glass-blur: blur(22px) saturate(160%);
+    --glass-sheen-1: color-mix(in srgb, white 14%, transparent);
+    --glass-sheen-2: color-mix(in srgb, white 3%, transparent);
+    --glass-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 20%, transparent),
+      0 8px 30px color-mix(in srgb, black 22%, transparent);
+  }
+
+  /*
+   * Light. Cards stop being glass and become paper: an opaque white body, a
+   * 1px green-tinted hairline for an edge, and the reference system's two-step
+   * shadow instead of an inner sheen. The tint each card carries is still
+   * there — it just drops from a 15% wash to a 3% warmth in the fill and a 16%
+   * cast in the border, which is the difference between "a blue card" and "a
+   * white card that knows it is about a project".
+   */
+  :root[data-theme='light'] {
+    --font-display: var(--font-fraunces);
+
+    --glass-tint-mix: 3%;
+    --glass-surface-mix: 97%;
+    --glass-surface-mix-opaque: 97%;
+    --glass-edge-tint-mix: 16%;
+    --glass-edge-hairline-mix: 84%;
+    --glass-blur: none;
+    --glass-sheen-1: transparent;
+    --glass-sheen-2: transparent;
+    --glass-shadow: var(--shadow-card);
   }
 
   * {
@@ -91,9 +172,31 @@
     overflow-x: clip;
   }
 
+  /*
+   * A page of paper is never one flat value. This is a barely-there warm
+   * gradient — three stops inside four points of lightness — so the canvas
+   * reads as stock rather than as #ffffff. Dark mode stays pure void: there
+   * the flatness is the point.
+   */
+  :root[data-theme='light'] body {
+    background-image: radial-gradient(
+      118% 74% at 50% -12%,
+      #ffffff 0%,
+      var(--surface) 46%,
+      #f6f7f3 100%
+    );
+    background-attachment: fixed;
+  }
+
   ::selection {
     background: var(--accent);
     color: var(--accent-ink);
+  }
+
+  /* Ink on a highlighter smear, not a filled block — the editorial equivalent. */
+  :root[data-theme='light'] ::selection {
+    background: color-mix(in srgb, var(--accent-text) 24%, transparent);
+    color: var(--text);
   }
 
   /* Visible, branded, keyboard-only focus. Never removed. */
@@ -172,6 +275,7 @@
 }
 
 @utility t-subheading {
+  font-family: var(--font-display);
   font-size: clamp(26px, 3vw, 36px);
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -179,6 +283,7 @@
 }
 
 @utility t-heading-sm {
+  font-family: var(--font-display);
   font-size: clamp(28px, 4vw, 42px);
   line-height: 1.15;
   letter-spacing: -0.04em;
@@ -186,6 +291,7 @@
 }
 
 @utility t-heading {
+  font-family: var(--font-display);
   font-size: clamp(32px, 5vw, 48px);
   line-height: 1.1;
   letter-spacing: -0.04em;
@@ -193,6 +299,7 @@
 }
 
 @utility t-heading-lg {
+  font-family: var(--font-display);
   font-size: clamp(38px, 7vw, 78px);
   line-height: 1.05;
   letter-spacing: -0.04em;
@@ -200,6 +307,7 @@
 }
 
 @utility t-display {
+  font-family: var(--font-display);
   font-size: clamp(44px, 8.6vw, 113px);
   line-height: 1.02;
   letter-spacing: -0.045em;
@@ -211,6 +319,100 @@
   max-width: var(--page-max);
   margin-inline: auto;
   padding-inline: var(--gutter);
+}
+
+/* ---------------------------------------------------------------------------
+   Light-theme type corrections.
+
+   The scale above is tuned for a geometric sans: -0.045em at 113px is what
+   makes Inter feel sculptural. A serif cannot take that. Fraunces at -0.045em
+   collides its own serifs at display size and turns the ascenders into a
+   picket fence, so tracking relaxes to the reference system's -0.02em and the
+   leading opens up to clear the descenders. Body copy goes the other way:
+   Dala's signature ultra-light 200 is a dark-mode trick — white-on-black
+   optically thickens type, cream-on-ink does not, and 200 at 18px on paper is
+   a grey smear. The reference system sets body at 400, so it does here.
+
+   Unlayered on purpose: these have to beat the @utility output above.
+--------------------------------------------------------------------------- */
+
+:root[data-theme='light'] .t-display {
+  letter-spacing: -0.02em;
+  line-height: 1.06;
+}
+:root[data-theme='light'] .t-heading-lg {
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+}
+:root[data-theme='light'] .t-heading,
+:root[data-theme='light'] .t-heading-sm {
+  letter-spacing: -0.018em;
+  line-height: 1.14;
+}
+:root[data-theme='light'] .t-subheading {
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+}
+:root[data-theme='light'] .t-body {
+  font-weight: 400;
+}
+:root[data-theme='light'] .t-caption {
+  font-size: 13px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * Nav, buttons and labels drop out of uppercase. Dala shouts its labels in
+ * 14px/600 caps with positive tracking; the reference light system speaks
+ * them in 15px/500 sentence case with slight negative tracking. Same
+ * elements, different register — this is where the two themes stop being a
+ * palette swap and start being two voices.
+ */
+:root[data-theme='light'] .t-nav,
+:root[data-theme='light'] .pill,
+:root[data-theme='light'] .ghost {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+:root[data-theme='light'] .tag {
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * The primary action. Dark keeps Dala's one filled violet pill. Light does
+ * not get a filled pill at all: the reference system is explicit that Signal
+ * Blue is a border-and-text colour and that the palette has no filled
+ * chromatic button, so the CTA becomes an outlined 8px-radius action and the
+ * fill is held back for the hover. Losing the solid slab is the single change
+ * that stops light mode reading as dark mode with the lights on — a filled
+ * pill on paper is the loudest object on the page, and nothing in an editorial
+ * layout should be that loud.
+ *
+ * No lift on hover either. Dark translates the pill 1px on hover because the
+ * void supports a sense of depth; paper does not, and the reference system
+ * has no elevation play on buttons.
+ */
+:root[data-theme='light'] .pill {
+  background: transparent;
+  color: var(--accent-text);
+  border: 1px solid color-mix(in srgb, var(--accent-text) 52%, transparent);
+  border-radius: 10px;
+  padding: 11px 20px;
+}
+:root[data-theme='light'] .pill:hover {
+  background: color-mix(in srgb, var(--accent-text) 9%, transparent);
+  border-color: var(--accent-text);
+  transform: none;
+}
+:root[data-theme='light'] .pill:active {
+  background: color-mix(in srgb, var(--accent-text) 15%, transparent);
+}
+:root[data-theme='light'] .ghost {
+  color: var(--text-body);
 }
 
 /* ---------------------------------------------------------------------------
@@ -234,42 +436,54 @@
 
 @layer components {
   /*
-   * Liquid glass. Every "card" in the site used to be a 1px hairline with a
-   * fully transparent fill, which reads as barely-there boundary rather than
-   * an actual surface. This gives it a frosted, slightly tinted body instead:
-   * blurred + saturated backdrop, a tint-derived border brighter than the
-   * plain hairline, and a soft inner top sheen for depth — while staying
-   * translucent enough that the page behind it (ambient field, gradients)
-   * still shows through.
+   * One card component, two materials.
+   *
+   * In dark it is liquid glass: a blurred, saturated backdrop, a tint-derived
+   * border brighter than the plain hairline, and a soft inner top sheen — all
+   * translucent enough that the ambient field behind still shows through. The
+   * colour math there is deliberate: color-mix's two percentages don't sum to
+   * 100, and the shortfall is CSS's way of producing a translucent result from
+   * two opaque inputs, which is what lets backdrop-filter do anything visible.
+   *
+   * In light it is paper. Frosting a white card sitting on a white page is a
+   * no-op that costs a compositor layer, and a 15% tint over white is how you
+   * get the baby-blue slab instead of a content card. So the light tokens drop
+   * the fill to a 3% warmth, hand the edge to the 1px Mist hairline, kill the
+   * sheen outright, and swap the inner glow for the reference system's
+   * two-step drop shadow. Every value below comes from --glass-* in @layer
+   * base; nothing here knows which theme is active.
    *
    * `--glass-tint` defaults to the general-purpose tint and is overridden by
-   * the `.glass-*` kind modifiers below, each pointing at its own themeable
-   * CSS variable (see theme.ts `cardTints` + the admin Colors tab).
-   *
-   * The colour math: color-mix's two percentages intentionally don't sum to
-   * 100 — the shortfall is CSS's built-in way of producing a translucent
-   * result from two fully opaque inputs, which is what lets backdrop-filter
-   * actually do something visible through it.
+   * the `.glass-*` kind modifiers, each pointing at its own themeable variable
+   * (see theme.ts `cardTints` + the admin Colors tab).
    */
   .glass-card {
     --glass-tint: var(--glass-tint-base);
     position: relative;
     isolation: isolate;
-    background: color-mix(in srgb, var(--glass-tint) 15%, var(--surface-raised) 70%);
-    backdrop-filter: blur(22px) saturate(160%);
-    -webkit-backdrop-filter: blur(22px) saturate(160%);
-    border: 1px solid color-mix(in srgb, var(--glass-tint) 42%, var(--hairline) 58%);
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, white 20%, transparent),
-      0 8px 30px color-mix(in srgb, black 22%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--glass-tint) var(--glass-tint-mix),
+      var(--surface-raised) var(--glass-surface-mix)
+    );
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid
+      color-mix(
+        in srgb,
+        var(--glass-tint) var(--glass-edge-tint-mix),
+        var(--hairline) var(--glass-edge-hairline-mix)
+      );
+    box-shadow: var(--glass-shadow);
     overflow: hidden;
   }
   /*
-   * The sheen: a soft diagonal highlight across the top, the way light
-   * catches the top edge of an actual pane of glass. This is what reads as
-   * "glass" in a static screenshot — the blur alone doesn't sell it when
-   * there's nothing colourful directly behind the card to blur, which is
-   * most of the time on a mostly-black page.
+   * The sheen: a soft diagonal highlight across the top, the way light catches
+   * the top edge of an actual pane of glass. This is what reads as "glass" in
+   * a static screenshot — the blur alone doesn't sell it when there's nothing
+   * colourful directly behind the card to blur, which is most of the time on a
+   * mostly-black page. In light both stops resolve to transparent, so the
+   * gradient renders nothing and paper stays paper.
    */
   .glass-card::before {
     content: '';
@@ -278,8 +492,8 @@
     z-index: -1;
     background: linear-gradient(
       135deg,
-      color-mix(in srgb, white 14%, transparent) 0%,
-      color-mix(in srgb, white 3%, transparent) 22%,
+      var(--glass-sheen-1) 0%,
+      var(--glass-sheen-2) 22%,
       transparent 45%
     );
     pointer-events: none;
@@ -299,7 +513,11 @@
   @supports not (backdrop-filter: blur(1px)) {
     /* No backdrop-filter support: make up for the lost frosting with more fill. */
     .glass-card {
-      background: color-mix(in srgb, var(--glass-tint) 15%, var(--surface-raised) 92%);
+      background: color-mix(
+        in srgb,
+        var(--glass-tint) var(--glass-tint-mix),
+        var(--surface-raised) var(--glass-surface-mix-opaque)
+      );
     }
   }
 

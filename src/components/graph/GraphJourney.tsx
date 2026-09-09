@@ -4,7 +4,17 @@ import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import SpriteText from 'three-spritetext';
 import { buildGraph, type GraphNode, type NodeKind } from '@/lib/graph';
-import { usePalette } from '@/lib/useTheme';
+import { usePalette, useTheme } from '@/lib/useTheme';
+import { DustCloud } from '@/components/graph/DustCloud';
+import {
+  OUTER,
+  SHAPE_DEPTH,
+  brainShape,
+  knightShape,
+  scatterShape,
+  sphereShape,
+  type Vec3,
+} from '@/components/graph/shapes';
 import { useVisible } from '@/components/core/WhenVisible';
 import { GraphReadout } from '@/components/graph/GraphReadout';
 import { AskAI } from '@/components/chat/AskAI';
@@ -37,24 +47,27 @@ import type { Project } from '@/lib/content';
  * fully past, so there's nothing to bleed through. The only actor with
  * anything special going on is the graph.
  *
- * Sequence, in order (unchanged from the first version):
+ * Sequence, in order. One keyframe per screenful of scroll, so each shape is
+ * fully formed exactly when its own block is centred — see the KEYS comment
+ * for why that alignment is deliberate rather than incidental:
  *   heroRight    — assembled sphere, panned right. Hero's copy sits in the
  *                  first block on the left, and nodes are clickable (tap a
  *                  node → primes Ask AI).
  *   heroLeft     — same sphere, panned left, turned partway, as the page
  *                  scrolls Hero's block away and Ask AI's block in.
- *   scatterWide → scatterWide2 → scatterWide3
- *                — one real scatter transition, then two "hold" keyframes
- *                  where the point cloud is identical — the graph reads as a
+ *   scatterWide → scatterHold
+ *                — one real scatter transition, then a "hold" keyframe where
+ *                  the point cloud is identical — the graph reads as a
  *                  constant, fully-populated backdrop while Metrics' and then
  *                  Proof's blocks scroll past beside it, rather than
  *                  something that empties and refills between sections.
  *   sphere       — reassembles, centred. "Everything, connected."
- *   near / far / brain / alt / far2
- *                — a tighter scatter, a wider one, a two-lobed "brain", a
- *                  half-turn into a ring, then one final scatter. No left-
- *                  column content here beyond the headings already in the
- *                  .shell blocks below — the shape itself is the moment.
+ *   brain        — the two-lobed shape. "One mind behind all of it."
+ *   brainTurn    — the same points, half a turn around. "Same mind, different
+ *                  lens", meant literally.
+ *   knight → knightHold
+ *                — resolves into a chess knight as "Ishant Shrivastava"
+ *                  appears beside it, then holds for one screen.
  *
  * Node count is never touched by any of this — every keyframe is a
  * repositioning of the same fixed set of points, which is what keeps the
@@ -71,11 +84,18 @@ import type { Project } from '@/lib/content';
  * sphere, then Ask AI, Metrics and Proof, stacked and scrolled normally.
  */
 
-type Vec3 = [number, number, number];
-type PNode = { id: string; kind: NodeKind; dot: number; color: string };
+type PNode = {
+  id: string;
+  kind: NodeKind;
+  /** Sprite diameter while the field is still a readable graph. */
+  dot: number;
+  /** Sprite diameter once it is a sculpture — one of the dust sizes. See DUST_MATCH. */
+  sculptDot: number;
+  color: string;
+};
 
-/** One shell radius for the whole sequence — every shape is built to roughly this scale. */
-const OUTER = 260;
+/** Unit vector from the origin toward the fixed camera — see the camera effect below. */
+const CAM = new THREE.Vector3(0.18, 0.1, 1).normalize();
 
 const DOT: Record<NodeKind, number> = {
   person: 20, // deliberately larger than everything — queen-bee node.
@@ -94,18 +114,42 @@ const DEGREE_BONUS: Record<NodeKind, number> = {
   tech: 0.34,
 };
 
+/*
+ * One keyframe per screenful, and that is load-bearing.
+ *
+ * The sequence used to run eleven keyframes across ten screens of scroll, so
+ * nothing landed anywhere in particular: shapes finished forming partway
+ * through whichever block happened to be passing, and the last three
+ * transitions played out over two empty screenfuls at the end with no content
+ * beside them. Making KEYS.length − 1 equal the number of scrollable screens
+ * (eight content blocks plus a one-screen tail, so eight segments) makes segF
+ * equal the block index exactly — every shape is fully formed at the moment
+ * its own heading is centred, and none of them form anywhere else.
+ *
+ *   heroRight   0  Hero — assembled sphere, panned right, nodes clickable.
+ *   heroLeft    1  Ask AI — same sphere, panned left and turned partway.
+ *   scatterWide 2  Metrics — the cloud opens out behind the numbers.
+ *   scatterHold 3  Proof — identical cloud, held, so the field reads as a
+ *                  constant backdrop rather than emptying and refilling.
+ *   sphere      4  "Everything, connected." — reassembles, centred.
+ *   brain       5  "One mind behind all of it." — the two-lobed shape.
+ *   brainTurn   6  "Same mind, different lens." — the same points, half a
+ *                  turn around. The line finally means what it says: it is
+ *                  literally the same cloud from the other side.
+ *   knight      7  "Ishant Shrivastava" — resolves into the chess piece as
+ *                  the name appears.
+ *   knightHold  8  One screen of the held knight before Work starts.
+ */
 const KEYS = [
   'heroRight',
   'heroLeft',
   'scatterWide',
-  'scatterWide2',
-  'scatterWide3',
+  'scatterHold',
   'sphere',
-  'near',
-  'far',
   'brain',
-  'alt',
-  'far2',
+  'brainTurn',
+  'knight',
+  'knightHold',
 ] as const;
 type Key = (typeof KEYS)[number];
 const SEG_COUNT = KEYS.length - 1;
@@ -116,10 +160,103 @@ const PAN: Partial<Record<Key, number>> = {
   heroLeft: -1.15,
 };
 
-/** Cumulative yaw added per segment (radians). Index i = the segment from KEYS[i] to KEYS[i+1]. */
+/**
+ * Roll about the view axis, in radians, per keyframe. Interpolated between
+ * keyframes exactly like PAN.
+ *
+ * This exists for one moment: the knight should not simply appear upright and
+ * finished. It leans out of the orbit it was part of, and straightens as it
+ * resolves. So the cloud picks up a tilt across the half-turn on segment 5 —
+ * "Same mind, different lens" now rolls as well as turns, which reads as the
+ * shape being handled rather than played back — and then segment 6 eases that
+ * tilt back to zero over the same span in which the points migrate into the
+ * chess piece. The result is that the knight is visibly assembling at an angle
+ * and comes to rest vertical, arriving on its feet at the exact frame the
+ * shape completes.
+ *
+ * Roll rather than pitch: a tilt about the depth axis is the one you can
+ * actually see resolve on a mostly-flat point cloud. Pitching it away from
+ * camera would foreshorten the silhouette instead, which is the one thing the
+ * shape cannot afford to lose.
+ */
+const TILT: Partial<Record<Key, number>> = {
+  brainTurn: 0.5, // ~29°, leaning
+  knight: 0, // upright
+  knightHold: 0,
+};
+
+/**
+ * Camera distance per keyframe, as a multiple of the framing solved for the
+ * widest shape. Everything else is 1.
+ *
+ * The camera has to be pulled back far enough to hold the scatter, which is
+ * six times the diameter of anything else in the sequence — so the knight,
+ * framed for its neighbour, sat at about half the height of its own column.
+ * A shape that is the payoff of eight screens of scroll should not be the
+ * smallest thing on screen. The push-in runs across the same segment the
+ * points migrate into the piece, so it reads as the camera closing on
+ * something rather than as a zoom control being nudged, and it carries on a
+ * little further through the hold.
+ */
+const ZOOM: Partial<Record<Key, number>> = {
+  knight: 0.8,
+  knightHold: 0.72,
+};
+
+/**
+ * Which entry in SHAPE_DEPTH each keyframe uses for its depth cue. Both the
+ * range and the strength are interpolated between keyframes exactly like PAN
+ * and TILT, so the piece gains its volume on the way in rather than switching
+ * it on at the last frame.
+ */
+const DEPTH_OF: Record<Key, keyof typeof SHAPE_DEPTH> = {
+  heroRight: 'sphere',
+  heroLeft: 'sphere',
+  scatterWide: 'scatter',
+  scatterHold: 'scatter',
+  sphere: 'sphere',
+  brain: 'brain',
+  brainTurn: 'brain',
+  knight: 'knight',
+  knightHold: 'knight',
+};
+
+/**
+ * Cumulative yaw added per segment (radians). Index i = the segment from
+ * KEYS[i] to KEYS[i+1].
+ *
+ * The two turns are doing real work. The half-turn on segment 5 is what makes
+ * "Same mind, different lens" true rather than decorative — brain and
+ * brainTurn are the identical point cloud, and the only thing that changes is
+ * which side of it you are standing on.
+ *
+ * Segment 6 lands a touch *short* of 2π and segment 7 carries it 0.77 past —
+ * so the piece finishes forming just before dead profile, swings through it,
+ * and comes to rest at about 35° of three-quarter. Both ends of that are
+ * chosen rather than convenient.
+ *
+ * Dead profile is where a knight is most recognisable and least believable: it
+ * is the view every chess set is photographed from, and it is also the one
+ * view in which a carved piece is indistinguishable from a flat cut-out
+ * however solid the geometry underneath actually is. So it is passed through
+ * rather than parked at — the shape resolves at the moment it is easiest to
+ * read, and then turns, and the turning is what tells you it was never flat.
+ *
+ * Past about 45° it stops being worth it: the muzzle foreshortens into the
+ * cheek, the mane swings across the neck, and the silhouette that did all the
+ * work goes with them. 35° is the far end of the useful range, which is where
+ * it stops.
+ *
+ * All of that happens over the same screen in which the piece slides out of
+ * its side dock and settles in the middle of the frame. Turning and travelling
+ * together is the point: it arrives centred, still, and having shown you every
+ * side of itself on the way.
+ */
 const YAW_DELTA: number[] = new Array(SEG_COUNT).fill(0);
 YAW_DELTA[0] = Math.PI * 0.4; // heroRight → heroLeft: "rotates a bit" while it moves
-YAW_DELTA[8] = Math.PI; // brain → alt: the direction change, held afterward
+YAW_DELTA[5] = Math.PI; // brain → brainTurn: the other side of the same mind
+YAW_DELTA[6] = Math.PI * 0.6 - 0.15; // brainTurn → knight: lands it a hair short of square
+YAW_DELTA[7] = 0.77; // knight → knightHold: swings through profile into three-quarter as it centres
 
 /*
  * Per-shape captions used to be rendered by <GraphJourney> itself, as a
@@ -137,16 +274,6 @@ YAW_DELTA[8] = Math.PI; // brain → alt: the direction change, held afterward
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const easeInOut = (t: number) => t * t * (3 - 2 * t);
 
-/** mulberry32 — seeded, so every shape is identical on every visit and every render. */
-function rng(seed: number) {
-  return () => {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 /**
  * Every shape function returns positions in node-index order. But one node
  * *always* belongs at the origin — the person node (Ishant) — regardless of
@@ -160,74 +287,6 @@ function centerPerson(nodes: PNode[], positions: Vec3[]): Vec3[] {
   const out = positions.slice();
   out[i] = [0, 0, 0];
   return out;
-}
-
-/** Golden-angle points on a sphere — even coverage, no clustering at the poles. */
-function sphereShape(nodes: PNode[]): Vec3[] {
-  const ga = Math.PI * (3 - Math.sqrt(5));
-  return nodes.map((_, i) => {
-    const y = nodes.length === 1 ? 0 : 1 - (i / (nodes.length - 1)) * 2;
-    const r = Math.sqrt(Math.max(0, 1 - y * y));
-    const th = ga * i + 0.6;
-    return [Math.cos(th) * r * OUTER, y * OUTER, Math.sin(th) * r * OUTER] as Vec3;
-  });
-}
-
-/** A uniform ball of debris. `spread` is the radius as a multiple of OUTER. */
-function scatterShape(nodes: PNode[], spread: number, seed: number): Vec3[] {
-  const rand = rng(seed);
-  return nodes.map(() => {
-    const u = rand();
-    const v = rand();
-    const w = rand();
-    const r = OUTER * spread * Math.cbrt(u);
-    const theta = 2 * Math.PI * v;
-    const phi = Math.acos(2 * w - 1);
-    return [
-      r * Math.sin(phi) * Math.cos(theta),
-      r * Math.sin(phi) * Math.sin(theta),
-      r * Math.cos(phi),
-    ] as Vec3;
-  });
-}
-
-/**
- * Two lobes on a shared Fibonacci sphere, split by index parity and separated
- * along x, with a low-frequency sine fold so the surface reads as organic
- * rather than two perfect eggs.
- */
-function brainShape(nodes: PNode[]): Vec3[] {
-  const ga = Math.PI * (3 - Math.sqrt(5));
-  const sep = OUTER * 0.36;
-  const rx = OUTER * 0.6;
-  const ry = OUTER * 0.5;
-  const rz = OUTER * 0.56;
-  const perLobe = Math.ceil(nodes.length / 2);
-  return nodes.map((_, i) => {
-    const side = i % 2 === 0 ? -1 : 1;
-    const j = Math.floor(i / 2);
-    const y = perLobe === 1 ? 0 : 1 - (j / (perLobe - 1)) * 2;
-    const r = Math.sqrt(Math.max(0, 1 - y * y));
-    const th = ga * i;
-    const fold = 1 + 0.1 * Math.sin(y * 6 + th * 2);
-    return [
-      Math.cos(th) * r * rx * fold + side * sep,
-      y * ry,
-      Math.sin(th) * r * rz * fold,
-    ] as Vec3;
-  });
-}
-
-/** A ring, wound around several times so the density matches the other shapes. */
-function altShape(nodes: PNode[]): Vec3[] {
-  const R = OUTER * 0.6;
-  const r = OUTER * 0.24;
-  const winds = 6;
-  return nodes.map((_, i) => {
-    const u = ((i / nodes.length) * Math.PI * 2 * winds) % (Math.PI * 2);
-    const v = (i * 2.399963) % (Math.PI * 2);
-    return [(R + r * Math.cos(v)) * Math.cos(u), r * Math.sin(v), (R + r * Math.cos(v)) * Math.sin(u)] as Vec3;
-  });
 }
 
 /** One soft white disc, tinted per node by the sprite material. Shared by every dot. */
@@ -262,6 +321,77 @@ type Node3D = PNode & {
   fz?: number;
 };
 
+/**
+ * How many particles the sculpture is made of.
+ *
+ * The knowledge graph has around a hundred nodes, which is plenty for a
+ * sphere — a sphere is legible from a dozen points because the brain fills in
+ * a shape it already expects. It is nowhere near enough for the knight. A
+ * silhouette with real features (a stepped pedestal, a throat, a jaw, a
+ * muzzle, two ears, a scalloped mane) needs enough points that each feature
+ * gets a crowd, and at a hundred nodes the ears were getting two or three
+ * each — so the piece came out as a wire outline with gaps rather than an
+ * object with a surface.
+ *
+ * This was 190, and 190 was a ceiling imposed by the wrong mechanism rather
+ * than by the design: the dust used to be extra nodes in ForceGraph3D's list,
+ * one sprite and one draw call each. It is now a `THREE.Points` field in the
+ * same scene, which costs three draw calls in total however many particles
+ * are in it, so the number can be what the shape actually needs. See
+ * DustCloud.
+ *
+ * What the shape needs turns out to be a lot. Seven thousand sounds generous
+ * until it is spread over the whole surface of a real model — a knight has
+ * some five hundred square millimetres of skin per particle at that count, and
+ * the piece reads as a sketch of itself. Twenty thousand is where the surface
+ * stops looking sampled and starts looking continuous. The GPU does not care
+ * (it is still three draw calls); what does care is the frame loop, which is
+ * why the keyframes below are flat `Float32Array`s rather than arrays of
+ * triples — the per-frame work is then a straight walk through typed memory
+ * with no per-particle object to index into.
+ *
+ * They stay inert: no id in the graph, no label, no hover, no click, and no
+ * existence at all until the graph has stopped being a graph. They take their
+ * colours from the theme's ambient array — the same palette as the page's own
+ * background particle field — so they read as the dust the real nodes are
+ * suspended in rather than as data being invented.
+ */
+const DUST_COUNT = 20000;
+
+const SCULPT_FROM = 1.25;
+const SCULPT_TO = 2.0;
+
+/**
+ * Sprite scales that land a real node at exactly the on-screen size of the
+ * three dust buckets, so that once the field is a sculpture there is no such
+ * thing as "a node" and "a mote" — there is one material.
+ *
+ * The 2.15 is not a fudge. A sprite is measured in world units and covers
+ * `s / (2 · distance · tan(fov/2))` of the frame; a `THREE.Points` particle
+ * goes through three's own attenuation, `size · (height/2) / distance`, and
+ * with the renderer's default 50° field of view those two differ by a factor
+ * of 1 / (2 · tan 25°) ≈ 2.15. Which is why the previous pass looked wrong
+ * even though the numbers on both sides were the same: dust buckets of
+ * 3.6 / 5.6 / 8.6 draw at the size of sprites 1.7 / 2.6 / 4.0, and the nodes —
+ * a project hub reaching 10 units after its degree bonus — were landing at
+ * three or four times that. Hence the two visible populations.
+ *
+ * They are also *assigned* rather than scaled. Multiplying each node's own
+ * diameter by a constant preserves the whole spread of node sizes, degree
+ * bonus and all, so a hub stays a hub and stays conspicuous; handing every
+ * node one of three fixed sizes is what actually dissolves them into the
+ * field.
+ */
+const DUST_MATCH = [1.68, 2.61, 4.01];
+/**
+ * The person node keeps a little of its status — half again the largest mote,
+ * no more. It is still the origin every shape is built around, but in the
+ * knight it sits inside the turned pedestal, and at its old size it read as a
+ * lamp buried in the base rather than as the brightest thing in a field.
+ */
+const PERSON_SCULPT_SIZE = DUST_MATCH[2] * 1.5;
+
+
 function useNodes(projects: Project[] | undefined) {
   const palette = usePalette();
   const colors = palette.graph;
@@ -269,13 +399,14 @@ function useNodes(projects: Project[] | undefined) {
   const nodes = useMemo<Node3D[]>(() => {
     const degree = new Map<string, number>();
     for (const n of graph.nodes) degree.set(n.id, graph.adjacency.get(n.id)?.size ?? 0);
-    return graph.nodes.map((n) => ({
+    return graph.nodes.map((n, i) => ({
       id: n.id,
       name: n.label,
       label: n.label,
       kind: n.kind,
       dot: DOT[n.kind] + Math.min(3.6, (degree.get(n.id) ?? 0) * DEGREE_BONUS[n.kind]),
       color: colors[n.kind],
+      sculptDot: n.kind === 'person' ? PERSON_SCULPT_SIZE : DUST_MATCH[i % 3],
     }));
   }, [graph, colors]);
   return { graph, nodes };
@@ -310,6 +441,8 @@ export function GraphJourney({
 
 function DesktopJourney({ className, projects }: { className?: string; projects?: Project[] }) {
   const palette = usePalette();
+  const colors = palette.graph;
+  const [theme] = useTheme();
   const visible = useVisible();
   const { graph, nodes } = useNodes(projects);
 
@@ -321,12 +454,28 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
   const texture = useRef<THREE.Texture | null>(null);
+  /*
+   * Whether the graph is still a thing you can interrogate. True for the two
+   * screens where the copy says "tap a node" and every dot is a labelled
+   * project; false from the crossover onward, where the nodes have shrunk into
+   * a uniform field and there is nothing left to reveal — a readout popping
+   * out of an anonymous 6px speck in the middle of the knight is noise, not
+   * information. Read inside the rAF loop and the ForceGraph callbacks, so it
+   * is a ref rather than state: flipping it must not re-render.
+   */
+  const interactive = useRef(true);
   const dots = useRef(new Map<string, THREE.Sprite>());
   const labels = useRef(new Map<string, THREE.Sprite>());
+  const dust = useRef<DustCloud | null>(null);
+  /** The distance the camera would sit at with no push-in. Solved once, in the camera effect. */
+  const fit = useRef(0);
+  /** The distance it is actually at, so the dolly only writes when it moves. */
+  const camDist = useRef(0);
 
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   const pick = (raw: Node3D) => {
+    if (!interactive.current) return;
     const node = graph.nodes.find((n) => n.id === raw.id) ?? null;
     setSelected((prev) => (prev?.id === node?.id ? null : node));
     if (node) prefillAsk(`Tell me about ${node.label}`);
@@ -348,23 +497,64 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
   /** Every keyframe's point cloud, indexed by node position — computed once per node set. */
   const shapes = useMemo<Record<Key, Vec3[]>>(() => {
     // Every shape passes through centerPerson so the queen-bee node sits at
-    // the origin in every keyframe — sphere, scatter, brain, ring, all of it.
+    // the origin in every keyframe — sphere, scatter, brain, knight, all of
+    // it. In the knight the origin lands in the upper base, just below the
+    // plinth the carved head sits on.
     const cp = (positions: Vec3[]) => centerPerson(nodes, positions);
-    const wide = cp(scatterShape(nodes, 3.0, 44));
+    // Shared references, not copies: a held keyframe must be the *same*
+    // numbers as the one before it, or the interpolator spends a screenful
+    // easing between two indistinguishable clouds and the field shimmers.
+    const ball = cp(sphereShape(nodes.length));
+    const wide = cp(scatterShape(nodes.length, 3.0, 44));
+    const mind = cp(brainShape(nodes.length));
+    const piece = cp(knightShape(nodes.length));
     return {
-      heroRight: cp(sphereShape(nodes)),
-      heroLeft: cp(sphereShape(nodes)),
+      heroRight: ball,
+      heroLeft: ball,
       scatterWide: wide,
-      scatterWide2: wide,
-      scatterWide3: wide,
-      sphere: cp(sphereShape(nodes)),
-      near: cp(scatterShape(nodes, 1.3, 11)),
-      far: cp(scatterShape(nodes, 2.7, 22)),
-      brain: cp(brainShape(nodes)),
-      alt: cp(altShape(nodes)),
-      far2: cp(scatterShape(nodes, 2.7, 33)),
+      scatterHold: wide,
+      sphere: ball,
+      brain: mind,
+      brainTurn: mind,
+      knight: piece,
+      knightHold: piece,
     };
   }, [nodes]);
+
+  /**
+   * The same nine keyframes for the dust, at its own far higher count. It is a
+   * separate index space from the graph's, which is the point: the shapes are
+   * generated from a count rather than from a node list precisely so that a
+   * hundred real nodes and seven thousand motes can each be spread properly
+   * over the whole of every shape, instead of the smaller set being handed one
+   * contiguous slice of it.
+   */
+  const dustShapes = useMemo<Record<Key, Float32Array>>(() => {
+    const flatten = (points: Vec3[]) => {
+      const out = new Float32Array(points.length * 3);
+      for (let i = 0; i < points.length; i++) {
+        out[i * 3] = points[i][0];
+        out[i * 3 + 1] = points[i][1];
+        out[i * 3 + 2] = points[i][2];
+      }
+      return out;
+    };
+    const ball = flatten(sphereShape(DUST_COUNT));
+    const wide = flatten(scatterShape(DUST_COUNT, 3.0, 71));
+    const mind = flatten(brainShape(DUST_COUNT));
+    const piece = flatten(knightShape(DUST_COUNT));
+    return {
+      heroRight: ball,
+      heroLeft: ball,
+      scatterWide: wide,
+      scatterHold: wide,
+      sphere: ball,
+      brain: mind,
+      brainTurn: mind,
+      knight: piece,
+      knightHold: piece,
+    };
+  }, []);
 
   const [first, ...rest] = profile.name.split(' ');
 
@@ -397,6 +587,27 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     fg.d3Force('center', null);
     fg.d3Force('link', null);
   }, [nodes, size.w]);
+
+  /**
+   * The dust field, added straight into the graph's own scene rather than
+   * handed to it as nodes. Rebuilt when the canvas or the palette changes,
+   * because both the colours and the blend mode are baked in at construction.
+   */
+  useEffect(() => {
+    const fg = fgRef.current;
+    const map = texture.current;
+    if (!fg || !size.w || !map) return;
+    const scene = fg.scene?.();
+    if (!scene) return;
+    const cloud = new DustCloud(DUST_COUNT, colors.ambient, map, theme !== 'light');
+    for (const points of cloud.objects) scene.add(points);
+    dust.current = cloud;
+    return () => {
+      for (const points of cloud.objects) scene.remove(points);
+      cloud.dispose();
+      dust.current = null;
+    };
+  }, [size.w, size.h, colors, theme]);
 
   const nodeObject = (raw: Node3D) => {
     const group = new THREE.Group();
@@ -445,8 +656,14 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     const controls = fg.controls?.();
     if (controls) controls.enabled = false;
     const aspect = size.w / size.h;
-    const fit = (OUTER * 4.4) / Math.min(1.15, Math.max(0.55, aspect));
-    fg.cameraPosition({ x: fit * 0.18, y: fit * 0.1, z: fit }, { x: 0, y: 0, z: 0 }, 0);
+    const solved = (OUTER * 4.4) / Math.min(1.15, Math.max(0.55, aspect));
+    fit.current = solved;
+    camDist.current = solved;
+    fg.cameraPosition(
+      { x: solved * 0.18, y: solved * 0.1, z: solved },
+      { x: 0, y: 0, z: 0 },
+      0,
+    );
   }, [size.w, size.h]);
 
   /** The scroll-to-shape mapping. Progress is measured across the whole outer section. */
@@ -474,6 +691,65 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         const panTo = PAN[toKey] ?? 0;
         const panX = (panFrom + (panTo - panFrom) * localT) * OUTER;
 
+        // Roll, interpolated the same way. Zero everywhere except across the
+        // lean into the knight — see TILT.
+        const tiltFrom = TILT[fromKey] ?? 0;
+        const tiltTo = TILT[toKey] ?? 0;
+        const tilt = tiltFrom + (tiltTo - tiltFrom) * localT;
+        const cosT = Math.cos(tilt);
+        const sinT = Math.sin(tilt);
+
+        // 0 while the graph is still a graph, 1 once it is a sculpture. Drives
+        // the dust fade-in and the real nodes' shrink — see SCULPT_FROM.
+        const sculpt = easeInOut(clamp01((segF - SCULPT_FROM) / (SCULPT_TO - SCULPT_FROM)));
+
+        /*
+         * Depth cue. `half` is roughly how far the current shape reaches along
+         * the view axis and `back` is what a particle at the far end of that
+         * range is dimmed to, both eased between keyframes. Everything the
+         * piece has in the way of volume comes from these two numbers: without
+         * them a point cloud is exactly as flat as it looks, because a
+         * perspective camera 1,300 units away cannot tell you anything useful
+         * about 200 units of depth on its own.
+         */
+        const depthFrom = SHAPE_DEPTH[DEPTH_OF[fromKey]];
+        const depthTo = SHAPE_DEPTH[DEPTH_OF[toKey]];
+        const half = depthFrom.half + (depthTo.half - depthFrom.half) * localT;
+        const back = depthFrom.back + (depthTo.back - depthFrom.back) * localT;
+
+        // Push-in. Only written when it actually moves, so a segment with no
+        // zoom change costs nothing.
+        const zoomFrom = ZOOM[fromKey] ?? 1;
+        const zoomTo = ZOOM[toKey] ?? 1;
+        const wanted = fit.current * (zoomFrom + (zoomTo - zoomFrom) * localT);
+        if (fit.current && Math.abs(wanted - camDist.current) > 0.4) {
+          camDist.current = wanted;
+          fgRef.current?.cameraPosition(
+            { x: wanted * 0.18, y: wanted * 0.1, z: wanted },
+            { x: 0, y: 0, z: 0 },
+            0,
+          );
+        }
+
+        /*
+         * Cross the same boundary the dust does, once, in either direction.
+         * Anything open at the moment interaction closes is dismissed —
+         * otherwise a readout card opened during Ask AI would hang around over
+         * the metrics with no node under it any more — and the slot stops
+         * taking pointer events entirely, so the canvas is not silently
+         * swallowing clicks and hovers over the content beside it.
+         */
+        const nowInteractive = segF < SCULPT_FROM;
+        if (interactive.current !== nowInteractive) {
+          interactive.current = nowInteractive;
+          if (!nowInteractive) {
+            setHovered(null);
+            setSelected(null);
+          }
+          const el = slotRef.current;
+          if (el) el.style.pointerEvents = nowInteractive ? 'auto' : 'none';
+        }
+
         // Cumulative yaw: every completed segment's full delta, plus the
         // current segment's partial delta — so a turn that already happened
         // stays turned instead of resetting each segment.
@@ -490,11 +766,24 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           const x = x0 + (x1 - x0) * localT + panX;
           const y = y0 + (y1 - y0) * localT;
           const z = z0 + (z1 - z0) * localT;
+          // Yaw about the vertical axis first, then roll about the depth
+          // axis. Order matters: rolling first would tip the axis that the
+          // yaw then spins around, and the piece would wobble instead of
+          // turning cleanly and then righting itself.
           const rx = x * cosY + z * sinY;
           const rz = -x * sinY + z * cosY;
-          n.fx = n.x = rx;
-          n.fy = n.y = y;
+          n.fx = n.x = rx * cosT - y * sinT;
+          n.fy = n.y = rx * sinT + y * cosT;
           n.fz = n.z = rz;
+
+          // Real nodes are shaded by depth too, once the field is a sculpture.
+          // Leaving them at flat opacity put a hundred evenly-bright dots in
+          // front of a cloud that had a front and a back, and they read as
+          // stuck to the lens rather than as embedded in the piece.
+          const cue = clamp01(
+            0.5 + (n.fx * CAM.x + n.fy * CAM.y + n.fz * CAM.z) / (2 * half),
+          );
+          const shade = 1 - sculpt * (1 - (back + (1 - back) * cue));
 
           const dot = dots.current.get(n.id);
           if (dot) {
@@ -508,15 +797,48 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
             // as the centre of the graph even before anything's hovered.
             const isPerson = n.kind === 'person';
             let scaleMul = pulse;
-            let opacityMul = 1;
+            let opacityMul = shade;
             if (isPerson) {
               scaleMul *= 1.15;
             }
+
+            /*
+             * The hand-off from graph to sculpture.
+             *
+             * For the first two screens this has to be a knowledge graph and
+             * nothing else: the copy says "tap a node", every dot is a real
+             * project or tool with a label and a readout behind it, and
+             * padding that out with thousands of decorative motes would be
+             * inventing data in the one place the visitor is being invited to
+             * inspect it. So the dust does not exist at all through Hero and
+             * Ask AI — not merely hidden, not scaled to zero and lurking in
+             * the raycast, but a `THREE.Points` with `visible = false` that
+             * is not in the graph's node list to begin with.
+             *
+             * After that the graph stops being a thing you read and starts
+             * being a thing you watch — it has no labels, nothing is
+             * clickable in practice, and its whole job is to hold a legible
+             * silhouette. Two changes cross over together across that
+             * boundary: the dust fades up, and the real nodes come down to
+             * meet it. A project node is 20 units across against dust at
+             * 3–8, so leaving them alone gives a band of fat coloured blobs
+             * sitting on top of a fine mist, reading as two unrelated layers
+             * rather than one field. Scaled to ~a third they land in the same
+             * size band as the dust and the cloud reads as a single material.
+             *
+             * The person node shrinks by less than the rest: it is still the
+             * origin every shape is built around, and in the knight it sits
+             * at the heart of the turned pedestal, so it stays the one dot
+             * that is obviously larger than everything else.
+             */
+            scaleMul *= 1 - sculpt * (1 - n.sculptDot / base);
+            if (!isPerson) opacityMul *= 1 - sculpt * 0.1;
+
             if (highlightIds) {
               if (highlightIds.has(n.id)) {
                 scaleMul *= n.id === activeId ? 1.55 : 1.25;
               } else if (!isPerson) {
-                opacityMul = 0.18;
+                opacityMul *= 0.18;
                 scaleMul *= 0.85;
               }
             }
@@ -524,6 +846,38 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
             const mat = dot.material as THREE.SpriteMaterial;
             mat.opacity = 0.94 * opacityMul;
           }
+        }
+
+        /*
+         * The dust, through the same interpolation, the same pan, the same
+         * yaw and the same roll — one field, one set of rules, two index
+         * spaces. Skipped entirely while sculpt is zero, which is both free
+         * and the thing that keeps the promise made two screens earlier: while
+         * the copy says "tap a node", every point on screen is a node.
+         */
+        const cloud = dust.current;
+        if (cloud) {
+          cloud.begin(sculpt, back);
+          if (sculpt > 0.002) {
+            const dFrom = dustShapes[fromKey];
+            const dTo = dustShapes[toKey];
+            for (let i = 0; i < cloud.count; i++) {
+              const j = i * 3;
+              const x0 = dFrom[j];
+              const y0 = dFrom[j + 1];
+              const z0 = dFrom[j + 2];
+              const x = x0 + (dTo[j] - x0) * localT + panX;
+              const y = y0 + (dTo[j + 1] - y0) * localT;
+              const z = z0 + (dTo[j + 2] - z0) * localT;
+              const rx = x * cosY + z * sinY;
+              const rz = -x * sinY + z * cosY;
+              const fx = rx * cosT - y * sinT;
+              const fy = rx * sinT + y * cosT;
+              const cue = clamp01(0.5 + (fx * CAM.x + fy * CAM.y + rz * CAM.z) / (2 * half));
+              cloud.set(i, fx, fy, rz, cue);
+            }
+          }
+          cloud.end();
         }
 
         /*
@@ -553,13 +907,25 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
             4 Everything    → heading RIGHT, graph LEFT
             5 One mind      → heading LEFT, graph RIGHT
             6 Same mind     → heading RIGHT, graph LEFT
-            7 Ishant        → heading CENTER, graph fades out
-            8+ trailing shape transitions on their own, graph LEFT
+            7 Ishant        → heading LEFT, graph RIGHT — mirrors Hero, and
+                              this is where the knight lands, so it gets a side
+                              dock at full strength rather than the old
+                              fade-to-0.15. The piece is the point of that
+                              screen; burying it at 15% behind 113px type was
+                              the previous version throwing away its own
+                              ending. Text and graph no longer overlap, so
+                              neither has to be dimmed for the other.
+            8 tail          → CENTER. The knight leaves its dock and settles
+                              in the middle of the frame while it finishes
+                              turning. Nothing is beside it by then — the name
+                              has scrolled past and Work has not arrived — so
+                              the last thing the opening act does is put the
+                              piece alone, centred and still.
           The block count matches the number of min-h-screen slots rendered
-          above, plus the 200vh trailing spacer at the end.
+          above, plus the 100vh trailing spacer at the end.
         */
         const blockIdx = Math.max(0, Math.round(-outerRef.current!.getBoundingClientRect().top / window.innerHeight));
-        const DOCK: Array<'left' | 'right' | 'center' | 'fade'> = [
+        const DOCK: Array<'left' | 'right' | 'center'> = [
           'right',  // Hero
           'left',   // Ask AI
           'center', // Metrics — dead center of the viewport
@@ -567,7 +933,8 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           'left',   // Everything, connected.
           'right',  // One mind behind all of it.
           'left',   // Same mind, different lens.
-          'fade',   // Ishant Shrivastava
+          'right',  // Ishant Shrivastava — the knight
+          'center', // the tail — the knight comes to rest in the middle
         ];
         const dock = DOCK[Math.min(DOCK.length - 1, blockIdx)] ?? 'left';
         const slot = slotRef.current;
@@ -580,11 +947,12 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           if (dock === 'left') slot.style.transform = 'translateX(9%)';
           else if (dock === 'right') slot.style.transform = 'translateX(109%)';
           else slot.style.transform = 'translateX(59%)'; // centered
-          // Dim the graph when it sits centered behind Metrics/Proof, so the
-          // numbers and compare cards stay readable; hard-fade for the final
-          // Ishant stage; full opacity for the left/right side docks.
-          slot.style.opacity =
-            dock === 'fade' ? '0.15' : dock === 'center' ? '0.45' : '1';
+          // Dim the graph only where it sits centered *behind* content —
+          // Metrics and Proof, whose numbers and compare cards have to stay
+          // readable through it. Side docks clear the text column entirely,
+          // and the centred tail has nothing beside it at all, so both run at
+          // full opacity.
+          slot.style.opacity = dock === 'center' && blockIdx < 4 ? '0.45' : '1';
           slot.dataset.side = dock;
         }
       }
@@ -592,7 +960,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [visible, nodes, shapes, highlightIds, activeId]);
+  }, [visible, nodes, shapes, dustShapes, highlightIds, activeId]);
 
   return (
     <section ref={outerRef} id="graph" className={`relative scroll-mt-[24px] ${className}`}>
@@ -631,9 +999,17 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
               showNavInfo={false}
               numDimensions={3}
               nodeThreeObject={nodeObject as never}
-              nodeLabel={(n: Node3D) => n.name}
+              nodeLabel={(n: Node3D) => (interactive.current ? n.name : '')}
               onNodeClick={pick as never}
-              onNodeHover={((n: Node3D | null) => setHovered(n?.id ?? null)) as never}
+              onNodeHover={
+                ((n: Node3D | null) => {
+                  const id = interactive.current && n ? n.id : null;
+                  // Functional form so re-hovering dead space while already
+                  // null bails out instead of re-rendering on every frame the
+                  // pointer moves across the canvas.
+                  setHovered((prev) => (prev === id ? prev : id));
+                }) as never
+              }
               enableNodeDrag={false}
               enableNavigationControls={false}
               warmupTicks={0}
@@ -767,20 +1143,28 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           </div>
         </div>
 
-        {/* "Ishant Shrivastava" — CENTERED, over the triangle-mark shape. */}
-        <div className="shell flex min-h-screen items-center justify-center">
-          <div className="w-full text-center pointer-events-auto">
+        {/*
+          "Ishant Shrivastava" — LEFT, mirroring Hero, with the knight docked
+          right. It was centred and the graph faded to 0.15 behind it, which
+          made sense when the shape underneath was an anonymous scatter and
+          made no sense the moment it became a recognisable object. Opening on
+          the name beside a sphere and closing on the name beside the knight is
+          the same composition twice, which is what makes it read as an ending
+          rather than as one more screenful.
+        */}
+        <div className="shell flex min-h-screen items-center">
+          <div className="w-full max-w-[640px] pointer-events-auto">
             <h2 className="t-display text-bone">Ishant Shrivastava</h2>
           </div>
         </div>
 
         {/*
-          Two extra screenfuls of scroll to give the last few graph-shape
-          transitions (near → far, brain → alt, alt → far2)
-          the room they need. The captions for those in-between shape changes
-          aren't overlaid — the shape itself is the moment.
+          One screenful of tail, so the knight holds fully formed for a beat
+          before Work scrolls up over it. This was 200vh of nothing while three
+          leftover shape transitions played out unseen; the sequence now ends
+          on the knight, so all the tail has to do is let it sit.
         */}
-        <div style={{ height: '200vh' }} aria-hidden />
+        <div style={{ height: '100vh' }} aria-hidden />
       </div>
 
       {/*
@@ -804,14 +1188,14 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
 function MobileJourney({ projects }: { projects?: Project[] }) {
   const { graph, nodes } = useNodes(projects);
   const [selected, setSelected] = useState<GraphNode | null>(null);
-  const shape = useMemo(() => sphereShape(nodes), [nodes]);
+  const shape = useMemo(() => sphereShape(nodes.length), [nodes]);
 
-  for (const n of nodes) {
-    const p = shape[nodes.indexOf(n)];
+  nodes.forEach((n, i) => {
+    const p = shape[i];
     n.x = n.fx = p[0];
     n.y = n.fy = p[1];
     n.z = n.fz = p[2];
-  }
+  });
 
   const pick = (raw: Node3D) => {
     const node = graph.nodes.find((n) => n.id === raw.id) ?? null;

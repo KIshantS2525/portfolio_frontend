@@ -1,6 +1,6 @@
 // src/components/core/AmbientField.tsx
 import { useEffect, useMemo, useRef } from 'react';
-import { usePalette } from '@/lib/useTheme';
+import { usePalette, useTheme } from '@/lib/useTheme';
 
 /**
  * The floating field. Second pass.
@@ -33,7 +33,6 @@ import { usePalette } from '@/lib/useTheme';
  */
 
 const COUNT = 56;
-const GREY = 'rgb(160 160 160)';
 
 /** mulberry32 — seeded, so the field is identical on every load. */
 function rng(seed: number) {
@@ -61,7 +60,24 @@ type Particle = {
 
 export function AmbientField() {
   const palette = usePalette();
-  const hues = [palette.graph.role, palette.graph.domain, palette.graph.tech, palette.graph.person];
+  const [theme] = useTheme();
+  const light = theme === 'light';
+
+  /*
+   * These read from `graph.ambient`, not from the node colours.
+   *
+   * They used to pull role / domain / tech / person straight out of the graph
+   * palette, which is why light mode looked like the page needed dusting:
+   * those are node colours, chosen to be legible against the canvas at 3px
+   * inside a dense constellation, and half of them sit at the dark end of the
+   * ink scale. Scattered loose across a sheet of paper at 8px they stop
+   * reading as distant nodes and start reading as specks of grit.
+   *
+   * `graph.ambient` is the array that exists for exactly this — decorative,
+   * per-theme, and marked in theme.ts as never-UI. On light it holds blues and
+   * the two lightest neutrals; on dark, the full chromatic set.
+   */
+  const hues = palette.graph.ambient;
 
   const rootRef = useRef<HTMLDivElement>(null);
   const refs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -70,25 +86,31 @@ export function AmbientField() {
   const particles = useMemo<Particle[]>(() => {
     const rand = rng(0x4a17c);
     return Array.from({ length: COUNT }, (_, i) => {
-      // Every third particle is grey — a fixed pattern, not random per load,
-      // so the grey/colour balance doesn't shift on refresh.
-      const isGrey = i % 3 === 0;
+      // Every third particle is the quiet one — a fixed pattern, not random
+      // per load, so the balance doesn't shift on refresh.
+      const quiet = i % 3 === 0;
       const depth = rand();
+      const size = quiet ? 3 + rand() * 5 : 3 + rand() * 8;
+      const opacity = quiet ? 0.3 + rand() * 0.16 : 0.42 + rand() * 0.28;
       return {
         left: rand() * 100,
         top: rand() * 100,
-        size: isGrey ? 3 + rand() * 5 : 3 + rand() * 8,
-        color: isGrey ? GREY : hues[i % hues.length],
-        opacity: isGrey ? 0.3 + rand() * 0.16 : 0.42 + rand() * 0.28,
+        // Ink on paper carries much further than light in a void: the same
+        // opacity that reads as a faint glimmer on black reads as a hard
+        // fleck on cream, so light mode takes roughly two-thirds of it and
+        // trims the largest particles back.
+        size: light ? size * 0.85 : size,
+        color: hues[i % hues.length],
+        opacity: light ? opacity * 0.6 : opacity,
         phase: rand() * Math.PI * 2,
         bobSpeed: 0.15 + rand() * 0.25,
         bobAmount: 8 + rand() * 14,
         depth,
       };
     });
-    // hues comes from the palette below; recomputed whenever it changes.
+    // hues comes from the palette above; recomputed whenever it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [palette]);
+  }, [palette, light]);
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -170,7 +192,9 @@ export function AmbientField() {
             height: p.size,
             opacity: p.opacity,
             background: `radial-gradient(circle at 35% 30%, ${p.color} 0%, ${p.color} 55%, transparent 82%)`,
-            boxShadow: `0 0 ${p.size * 0.6}px ${p.size * 0.1}px ${p.color}`,
+            // Glow is a property of light in a dark room. On paper the same
+            // box-shadow is a smudge around the dot, so light mode drops it.
+            boxShadow: light ? 'none' : `0 0 ${p.size * 0.6}px ${p.size * 0.1}px ${p.color}`,
           }}
         />
       ))}

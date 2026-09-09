@@ -1,0 +1,157 @@
+/*
+ * Cursor-driven edge glow.
+ *
+ * This replaces a rotating conic-gradient ring that ran off a requestAnimation
+ * Frame loop and swept colour around the card forever, whether or not anyone
+ * was looking at it. Perpetual ambient motion on a card that holds a text
+ * input is the wrong signal — it reads as a loading state, it competes with
+ * the caret, and it is the single most "AI-generated landing page" gesture
+ * available. This version is silent until the pointer arrives, then lights the
+ * edge nearest the cursor and drops a soft spotlight under it.
+ *
+ * Two independent inputs, both written straight to custom properties from the
+ * pointermove handler — no React state, so only the hovered card does work:
+ *
+ *   --edge-proximity  0–100. How close the pointer is to the card's border,
+ *                     normalised so it hits 100 exactly at the edge regardless
+ *                     of the card's aspect ratio. Everything fades in against
+ *                     this, which is what makes the glow feel attached to the
+ *                     border rather than to the pointer.
+ *   --cursor-angle    Bearing from the card's centre to the pointer. The glow
+ *                     masks are conic gradients anchored to it, so only the
+ *                     arc of border the cursor is actually near lights up.
+ *
+ * Everything chromatic comes from --glow-tint, which the component hands over
+ * from the theme. No hardcoded purple.
+ */
+
+.border-glow {
+  --edge-proximity: 0;
+  --cursor-angle: 45deg;
+  --edge-sensitivity: 26;
+  --glow-padding: 34px;
+  --cone-spread: 26;
+  --mx: 50%;
+  --my: 50%;
+
+  position: relative;
+  isolation: isolate;
+  /* Promotes to its own layer so the mask work never repaints the page. */
+  transform: translate3d(0, 0, 0.01px);
+}
+
+.border-glow__layer {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: opacity 0.25s ease-out;
+}
+
+/* Pointer gone: everything eases out slowly. Faster in, slower out. */
+.border-glow:not(:hover):not(.is-sweeping) .border-glow__layer {
+  opacity: 0;
+  transition: opacity 0.75s ease-in-out;
+}
+
+/*
+ * The edge light. A ring of stacked box-shadows — tight bright core, then
+ * progressively wider and fainter halos, inside and out — masked to a narrow
+ * arc around the cursor bearing. The inset copies are what make the border
+ * itself appear lit rather than just having something glowing behind it.
+ */
+.border-glow__edge {
+  inset: calc(var(--glow-padding) * -1);
+  z-index: 1;
+  opacity: calc((var(--edge-proximity) - var(--edge-sensitivity)) / (100 - var(--edge-sensitivity)));
+  mask-image: conic-gradient(
+    from var(--cursor-angle) at center,
+    black 2.5%,
+    transparent 11%,
+    transparent 89%,
+    black 97.5%
+  );
+  -webkit-mask-image: conic-gradient(
+    from var(--cursor-angle) at center,
+    black 2.5%,
+    transparent 11%,
+    transparent 89%,
+    black 97.5%
+  );
+  /* plus-lighter adds light rather than painting over — correct on the void. */
+  mix-blend-mode: plus-lighter;
+}
+
+.border-glow__edge::before {
+  content: '';
+  position: absolute;
+  inset: var(--glow-padding);
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px var(--glow-100),
+    inset 0 0 3px 0 var(--glow-50),
+    inset 0 0 6px 0 var(--glow-40),
+    inset 0 0 15px 0 var(--glow-30),
+    inset 0 0 25px 2px var(--glow-20),
+    inset 0 0 50px 2px var(--glow-10),
+    0 0 3px 0 var(--glow-50),
+    0 0 6px 0 var(--glow-40),
+    0 0 15px 0 var(--glow-30),
+    0 0 25px 2px var(--glow-20),
+    0 0 50px 2px var(--glow-10);
+}
+
+/*
+ * The spotlight. A soft radial pool that follows the pointer across the card
+ * face, under the content. Held well below the edge light in strength — the
+ * border is the effect, this is the thing that keeps the middle of a large
+ * card from feeling dead while the cursor crosses it.
+ */
+.border-glow__spot {
+  z-index: 0;
+  opacity: calc(var(--edge-proximity) / 260 + 0.42);
+  background: radial-gradient(
+    360px circle at var(--mx) var(--my),
+    var(--glow-18) 0%,
+    transparent 68%
+  );
+}
+
+/*
+ * Light theme. plus-lighter on paper blows straight out to white, and a 50px
+ * halo around a document card looks like a printing fault, so the edge light
+ * drops to normal blending, loses the outer halos entirely, and keeps only the
+ * tight inset core — the border warms toward the cursor and nothing else
+ * happens. The spotlight survives at roughly half strength.
+ */
+:root[data-theme='light'] .border-glow__edge {
+  mix-blend-mode: normal;
+  opacity: calc(
+    0.55 * (var(--edge-proximity) - var(--edge-sensitivity)) / (100 - var(--edge-sensitivity))
+  );
+}
+
+:root[data-theme='light'] .border-glow__edge::before {
+  box-shadow:
+    inset 0 0 0 1px var(--glow-100),
+    inset 0 0 4px 0 var(--glow-30),
+    inset 0 0 14px 0 var(--glow-18);
+}
+
+:root[data-theme='light'] .border-glow__spot {
+  opacity: calc(var(--edge-proximity) / 520 + 0.3);
+}
+
+/* Touch, and anyone who asked for less motion: the card is simply flat. */
+@media (hover: none) {
+  .border-glow__layer {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .border-glow__layer {
+    transition: none;
+  }
+}
