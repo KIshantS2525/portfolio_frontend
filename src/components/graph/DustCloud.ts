@@ -31,8 +31,16 @@ import * as THREE from 'three';
  * of its position.
  */
 
-/** Sizes for the three buckets, in world units, before the per-frame scale. */
-const BUCKET_SIZE = [3.6, 5.6, 8.6];
+/**
+ * Sizes for the three buckets, in world units.
+ *
+ * Much larger than they look, because the star texture spends most of its
+ * radius on halo: the bright core is 22% of the quad, where the old disc was
+ * opaque out to 40%. A particle therefore has to be about twice as wide to
+ * present the same visible point — and gets its glow, and its faint
+ * diffraction spikes, for free in the space that buys.
+ */
+const BUCKET_SIZE = [7.5, 11.5, 17.5];
 /** Ceiling on a particle's alpha, so the densest part of the piece still has air in it. */
 const MAX_ALPHA = 0.9;
 
@@ -52,7 +60,7 @@ export class DustCloud {
    * @param palette  ambient colours, cycled; these are the page's own
    *                 background-particle hues, so the field reads as the same
    *                 material as everything else drifting behind the content
-   * @param map      the shared soft-disc texture
+   * @param map      the shared star texture — tight core, halo, faint spikes
    * @param additive additive blending on the dark theme, where overlapping
    *                 motes should sum into a glow; plain alpha on the light
    *                 one, where adding light to white paper does nothing
@@ -130,8 +138,17 @@ export class DustCloud {
     for (const points of this.objects) points.visible = sculpt > 0.002;
   }
 
-  /** Place particle `i`. `cue` is 0 at the far side of the cloud, 1 at the near. */
-  set(i: number, x: number, y: number, z: number, cue: number) {
+  /**
+   * Place particle `i`.
+   *
+   * @param cue    0 at the far side of the cloud, 1 at the near — the depth
+   *               shading that gives it a front and a back.
+   * @param weight a flat multiplier on top of that, for particles which belong
+   *               to the scene rather than to the subject. The starfield rides
+   *               at half, which is the difference between a sky behind the
+   *               sculpture and a second cloud competing with it.
+   */
+  set(i: number, x: number, y: number, z: number, cue: number, weight = 1) {
     const bucket = i % 3;
     const slot = (i - bucket) / 3;
     const p = this.positions[bucket];
@@ -139,7 +156,7 @@ export class DustCloud {
     p[slot * 3 + 1] = y;
     p[slot * 3 + 2] = z;
     this.colors[bucket][slot * 4 + 3] =
-      this.sculpt * (this.back + (1 - this.back) * cue) * MAX_ALPHA;
+      this.sculpt * (this.back + (1 - this.back) * cue) * weight * MAX_ALPHA;
   }
 
   /** Close the frame and upload. */

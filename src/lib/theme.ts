@@ -66,8 +66,17 @@ export type Palette = {
     tech: string;
     achievement: string;
     link: string;
-    /** Decorative only — the scattered particles, never UI. */
+    /** Decorative only — the scattered particles drifting behind the page, never UI. */
     ambient: string[];
+    /**
+     * The sculpture's dust. Separate from `ambient` because the two sit on
+     * different things: ambient particles drift *behind* the content and have
+     * to stay out of its way, while dust has to hold the shape of a chess
+     * piece against the page background. On the dark theme those are the same
+     * problem and the two arrays agree. On the light one they are opposites —
+     * see the light palette below.
+     */
+    dust: string[];
     linkAlpha: number;
     dimAlpha: number;
     ambientScale: number;
@@ -125,19 +134,41 @@ const dark: Palette = {
 
   graph: {
     /*
-     * Dark-mode graph palette. Person is a bright warm gold (Saffron pushed
-     * lighter, so it stays distinct from tech's darker saffron) — the queen
-     * bee node needs to read as a warm focal point instead of blending into
-     * every other white-tinted dot in the field.
+     * Dark-mode graph palette: a night sky, read literally.
+     *
+     * The kinds are assigned along the stellar sequence rather than around a
+     * colour wheel, which is why the set holds together — every hue in it is
+     * one a star actually comes in, and the eye knows that range even when it
+     * cannot name it. O and B types are blue, A blue-white, G yellow, K
+     * orange, M red. There is no green star and no purple one, so the single
+     * colour here that is off the sequence is the violet, which is a nebula —
+     * kept for domains, because a domain is the one kind that is a region
+     * rather than a body, and kept because it is the site's own accent.
+     *
+     * The person is the Moon: the one thing close enough to be a disc instead
+     * of a point (see makeOrbTexture), and on a black sky the pale, airless,
+     * unrayed one. The sun is what the light theme gets.
      */
-    person: '#fff2a8', //     Warm champagne — the queen bee.
-    role: '#8052ff',
-    project: '#8052ff',
-    domain: '#15846e',
-    tech: '#ffb829',
-    achievement: '#ffffff',
-    link: '#ffffff',
-    ambient: ['#8052ff', '#ffb829', '#15846e', '#6f5bd6', '#ffffff'],
+    person: '#f2f5fb', //      The Moon — pale lunar white, the only resolved body.
+    role: '#ffb26b', //        K-type orange giant — few, warm, conspicuous.
+    project: '#8fb6ff', //     B-type blue.
+    domain: '#c9a6ff', //      Nebula violet — a region, not a star.
+    tech: '#cfd9ee', //        A-type blue-white — the swarm, and the quietest.
+    achievement: '#ffe6a3', // G-type yellow.
+    link: '#6f7ea0',
+    /*
+     * The page's own drifting field, behind the content. Same stellar sequence
+     * as the nodes and the dust, so a particle behind a paragraph and a
+     * particle holding up the knight are recognisably the same thing seen at
+     * different distances. The teal that used to be in here was the one colour
+     * on the page that no star comes in, and it showed.
+     */
+    ambient: ['#8fb6ff', '#ffe6a3', '#ffb26b', '#cfd9ee', '#c9a6ff'],
+    /*
+     * The same stellar sequence as the nodes, so that once the graph becomes a
+     * sculpture there is one sky rather than two populations sharing a shape.
+     */
+    dust: ['#8fb6ff', '#cfd9ee', '#ffe6a3', '#ffb26b', '#c9a6ff'],
     linkAlpha: 0.08,
     dimAlpha: 0.1,
     ambientScale: 1,
@@ -205,30 +236,67 @@ const light: Palette = {
      * to Graphite, so the densest layer of the constellation was also the
      * heaviest and the whole field read as dirt scattered on the page.
      *
-     * Here the tonal weight tracks importance instead of accident of count.
-     * Cerulean marks the person (the system's one saturated colour, spent on
-     * the one node that earns it), Signal Blue the roles, then the ink scale
-     * steps down through Twilight and Charcoal for projects and achievements
-     * to Ash for domains and Fog for the tech swarm. The many small dots are
-     * now the lightest thing in the field, which is what lets the paper stay
-     * paper. Hue separation isn't needed to tell the kinds apart at this
-     * density — value separation does it, and stays inside the reference
-     * system's near-monochrome discipline.
+     * The same sky as the dark theme, printed rather than lit.
+     *
+     * Two attempts at this were wrong in the same way. Both built a ramp of a
+     * single hue — first ink, then blue — on the theory that a light theme
+     * should stay near-monochrome, and both produced a page of grey and blue
+     * bubbles with no life in them. Restraint is right for type and chrome. A
+     * constellation is not chrome, and a sky rendered in one hue is not a sky.
+     *
+     * So the kinds carry the same stellar assignments they do on black: blue
+     * giant, orange giant, yellow, violet nebula, blue-white swarm. One thing
+     * has to change, and it is not the hue. Real star colours are all tints of
+     * white — #8fb6ff and #ffe6a3 are within twenty points of lightness of
+     * Parchment, and on Parchment they are simply not there. Printing a sky
+     * means keeping the hues and inverting the value, so every colour below is
+     * its dark-theme counterpart taken down until it reads as ink. The
+     * relationships survive; the luminance flips, because it has to.
+     *
+     * The range stays deliberately narrow at both ends. The first ink ramp ran
+     * from Twilight #282834 to Fog #b4b8b4 — seventy points of lightness,
+     * survivable while nodes were nodes and fatal once the graph became a
+     * sculpture. At that point every node is the same size as the motes around
+     * it, so projects were near-black blots and forty-five tech nodes sat so
+     * close to the paper they weren't there: speckled and moth-eaten at once.
      */
-    person: '#0081c0', //      Cerulean — the queen bee, and the only saturated node.
-    role: '#41a1cf', //        Signal Blue
-    project: '#282834', //     Twilight
-    achievement: '#444141', // Charcoal
-    domain: '#646464', //      Ash
-    tech: '#b4b8b4', //        Fog — the swarm, deliberately the quietest.
-    link: '#646464',
+    person: '#e08700', //      The Sun — amber, rayed, the only resolved body.
+    role: '#c1440e', //        Orange giant, in ink.
+    project: '#2f5fd0', //     Blue giant.
+    achievement: '#b07400', // Yellow, deepened until it survives paper.
+    domain: '#7a4bc4', //      Nebula violet.
+    tech: '#8fa3c4', //        Blue-white swarm — the quietest, as always.
+    link: '#8fa3c4',
     /*
      * Decorative only. These drift across the whole page behind the content,
      * so anything with real weight in here reads as a smudge on the canvas
      * rather than a distant node — hence blues and the two lightest neutrals,
      * nothing from the dark end of the scale.
      */
-    ambient: ['#41a1cf', '#8fc4dd', '#0081c0', '#c9d2ce', '#dee2de'],
+    /*
+     * Pale on purpose — these drift across the whole page behind the text, so
+     * anything with real weight reads as a smudge on the canvas rather than a
+     * distant node. But pale is not the same as grey: these are the node hues
+     * washed out, not neutrals, so the light field has the same range of
+     * colour the dark one does at a fraction of the strength.
+     */
+    ambient: ['#8ea8dc', '#e0b478', '#c99a8a', '#a99ad0', '#c9d2ce'],
+    /*
+     * Dust, and emphatically not the ambient set. Three of those five —
+     * #8fc4dd, #c9d2ce, #dee2de — are within fifteen points of lightness of
+     * Parchment, which is exactly what a background mote wants and exactly
+     * what a sculpture cannot use: three fifths of the knight was invisible,
+     * and the two that weren't are the strongest blues in the system, so what
+     * remained read as a scatter of loud dots rather than a solid object.
+     *
+     * These are the node hues again, lightened one step so the dust stays
+     * quieter than the things suspended in it, and every one of them still
+     * clearly darker than the page. The depth cue works on alpha, so the far
+     * side of the piece fades toward the paper rather than toward black —
+     * which is the correct direction for a light theme, and is why nothing
+     * here needs to be pale to begin with.
+     */
+    dust: ['#4a74d6', '#e69a2b', '#cc5c2a', '#8d63cc', '#7f92b8'],
     linkAlpha: 0.14,
     dimAlpha: 0.14,
     ambientScale: 1.1,

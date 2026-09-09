@@ -92,10 +92,40 @@ export function brainShape(count: number): Vec3[] {
   });
 }
 
+/**
+ * A slab of sky, wider and taller than any frame it will be shown in.
+ *
+ * Uniform inside a box rather than a ball, because a ball projects to a disc
+ * and the corners of the screen stay conspicuously empty — which is the same
+ * complaint as the rectangle it is meant to fix, just with rounder edges. The
+ * box is deliberately shallow in z: these are meant to read as far away and
+ * still, and a particle that swings a long way through depth as the cloud
+ * turns reads as part of the cloud.
+ *
+ * Nothing here is seeded off the shapes, and the same array is used for every
+ * keyframe, so a starfield particle occupies one position for the entire
+ * sequence and simply sits there while the sculpture forms in front of it.
+ */
+export function starFieldShape(count: number, seed: number): Vec3[] {
+  const rand = rng(seed);
+  return Array.from({ length: count }, () => [
+    (rand() * 2 - 1) * OUTER * 5.4,
+    (rand() * 2 - 1) * OUTER * 3.2,
+    (rand() * 2 - 1) * OUTER * 1.3,
+  ] as Vec3);
+}
+
 /* ── the knight ─────────────────────────────────────────────────────────── */
 
-/** Total height of the piece in world units. */
-export const KNIGHT_HEIGHT = OUTER * 2.7;
+/**
+ * Total height of the piece in world units.
+ *
+ * Kept a little under what the frame could hold. The halo reaches 30mm clear
+ * of a 160mm knight, so the cloud is a good deal taller than the object in it,
+ * and sizing the object to the slot puts the ear tips and the foot of the
+ * pedestal through the top and bottom edges.
+ */
+export const KNIGHT_HEIGHT = OUTER * 2.6;
 
 /**
  * The camera's direction, expressed in the piece's own coordinates.
@@ -145,16 +175,19 @@ const VIEW_IN_PIECE = (() => {
  *             these are real surface samples on real triangles, so the edge
  *             has thickness and turns with the piece instead of being a wire
  *             stuck to the front of it.)
- *   halo    — pushed off the surface along its normal, most of it 5–15mm out
- *             with a quarter standing well clear, so the piece fades into the
- *             dust field instead of stopping dead at its own skin.
+ *   halo    — pushed off the surface along its normal: two thirds of it within
+ *             5–17mm of a 160mm piece, and the other third standing 22–50mm
+ *             clear, which is far enough to be its own drift rather than an
+ *             edge. Between this and the starfield the sculpture has no
+ *             boundary anywhere — it thins out of the sky and thins back into
+ *             it, and there is no distance at which the dust stops.
  */
 export function knightShape(count: number, seed = 0x4e19): Vec3[] {
   const { positions, indices, cumulativeSkin, cumulativeDetail, normals } = knightMesh();
   const triangles = cumulativeSkin.length;
   const rand = rng(seed);
 
-  const nSkin = Math.max(1, Math.round(count * 0.4));
+  const nSkin = Math.max(1, Math.round(count * 0.36));
   const nDetail = Math.max(1, Math.round(count * 0.16));
   const nRim = Math.max(1, Math.round(count * 0.26));
   const bSkin = nSkin;
@@ -237,10 +270,10 @@ export function knightShape(count: number, seed = 0x4e19): Vec3[] {
     // plume of dust underneath it, hanging in space below its own foot. It is
     // the one direction where a soft edge reads as a mistake rather than as
     // atmosphere, because a chess piece is a thing that sits on something.
-    const far = (i - bRim) % 4 === 0;
+    const far = (i - bRim) % 3 === 0;
     const t = triangleAt(cumulativeSkin, rand());
     const down = Math.max(0, -normals[t * 3 + 1]);
-    const off = (far ? 0.112 + rand() * 0.075 : 0.031 + rand() * 0.063) * (1 - 0.8 * down);
+    const off = (far ? 0.14 + rand() * 0.17 : 0.031 + rand() * 0.075) * (1 - 0.8 * down);
     return onTriangle(t, off);
   });
 }

@@ -13,6 +13,7 @@ import {
   knightShape,
   scatterShape,
   sphereShape,
+  starFieldShape,
   type Vec3,
 } from '@/components/graph/shapes';
 import { useVisible } from '@/components/core/WhenVisible';
@@ -154,11 +155,94 @@ const KEYS = [
 type Key = (typeof KEYS)[number];
 const SEG_COUNT = KEYS.length - 1;
 
-/** How far each keyframe pans the whole cloud sideways, in multiples of OUTER. Everything else is 0. */
+/**
+ * How far each keyframe pans the whole cloud sideways, as a fraction of the
+ * visible width. Everything else is 0.
+ *
+ * This used to be a multiple of OUTER — a flat number of world units — which
+ * was fine while the camera lived at one fixed distance inside a fixed-width
+ * box, and stopped being fine the moment either of those moved. A world offset
+ * is a smaller share of the screen the further back the camera sits, so
+ * widening the canvas to the whole viewport quietly shrank the swing from
+ * about 13% of the screen to about 10%: the graph went from sweeping across
+ * the page to shuffling. Expressed against the visible width instead, the
+ * travel is the same proportion of the screen at every distance, and pans the
+ * same distance whether or not the dolly happens to be pushing in.
+ *
+ * On the two hero screens the values below are intentionally past any legal
+ * value: they say "push it as far as it will go", and CROP decides where that
+ * is. Everywhere else the pan is zero and the dock alone places the cloud.
+ */
 const PAN: Partial<Record<Key, number>> = {
-  heroRight: 1.15,
-  heroLeft: -1.15,
+  heroRight: 0.5,
+  heroLeft: -0.5,
 };
+
+/**
+ * Where the sphere is parked on the two screens where it is the subject, as
+ * the distance from its centre to the near edge of the screen, measured in its
+ * own radii. 1.0 would put it exactly touching.
+ *
+ * Two earlier attempts at this were wrong in two different ways, and both are
+ * worth stating because they are easy to walk back into.
+ *
+ * The first expressed the offset as a fraction of the screen width. That unit
+ * is simply wrong for the job: the sphere's projected radius is a fixed number
+ * of *pixels*, because the camera is framed off the canvas height, not its
+ * width. The same fraction therefore means a different thing on every monitor,
+ * and the placement came out cropped or timid depending on where it was looked
+ * at.
+ *
+ * The second fixed the unit and then asked the wrong question of it — how much
+ * of the ball is allowed *off* the screen — so the solver pushed the sphere as
+ * far as it was legally permitted to go, which is to say hard against the
+ * edge, touching it. Technically "fully displayed". Visibly jammed.
+ *
+ * So the question here is where the sphere sits, not how far it may be shoved:
+ * 1.6 radii from the right on Hero and 1.3 from the left on Ask AI, which
+ * leaves both of them completely on screen with something like half a radius
+ * of air outside. It holds at any window size, because the radius it is
+ * measured in is the same physical radius the visitor sees.
+ */
+const EDGE: Partial<Record<Key, number>> = {
+  heroRight: 1.6,
+  heroLeft: 1.3,
+};
+
+/**
+ * Where each dock sits, as a fraction of the visible width either side of
+ * centre.
+ *
+ * These used to be CSS: a 46vw box with `overflow-hidden`, slid left and right
+ * with translateX. That works perfectly for the graph and is a disaster for
+ * everything around it, because a canvas is only as big as its element and the
+ * dust stops dead at the edge of the box. On the dark theme nobody noticed —
+ * black particles thinning into black. On paper it is a rectangle of stars
+ * sitting on the page with four hard corners, which is exactly what it looks
+ * like: a div.
+ *
+ * So the canvas is the whole viewport now and the docking happens in world
+ * space instead, as an offset added to every point right alongside PAN. The
+ * numbers are the same positions the CSS produced — the old slot centred at
+ * 27%, 50% and 73% of the screen — so the composition is unchanged; only the
+ * thing being moved is different. Nothing clips any more because there is no
+ * longer an edge to clip against.
+ */
+const DOCK_X: Record<'left' | 'center' | 'right', number> = {
+  left: -0.229,
+  center: 0,
+  right: 0.229,
+};
+
+/**
+ * How fast the cloud slides between docks, per frame at 60fps.
+ *
+ * The CSS transition it replaces was `duration-700 ease-out`. An exponential
+ * approach is not the same curve, but it has a property the transition did
+ * not: it is always already in motion, so a dock change part-way through
+ * another one blends instead of restarting. 0.055 settles in about 700ms.
+ */
+const DOCK_EASE = 0.055;
 
 /**
  * Roll about the view axis, in radians, per keyframe. Interpolated between
@@ -197,10 +281,26 @@ const TILT: Partial<Record<Key, number>> = {
  * points migrate into the piece, so it reads as the camera closing on
  * something rather than as a zoom control being nudged, and it carries on a
  * little further through the hold.
+ *
+ * It does not go as close as it can, though. The piece carries a halo standing
+ * up to 30mm clear of its own surface, and framing the *knight* to the slot
+ * crops the halo — the ears and the foot of the pedestal run off the top and
+ * bottom edges and the object stops looking like it is sitting in space and
+ * starts looking like it is jammed into a box. These numbers frame the halo
+ * instead, which leaves the piece itself at about two thirds of the frame with
+ * air above and below it.
  */
 const ZOOM: Partial<Record<Key, number>> = {
-  knight: 0.8,
-  knightHold: 0.72,
+  // Ask AI. A small push-in — about a tenth closer, not a third. The first
+  // attempt took the camera to 0.62 and put a 520px sphere two thirds on
+  // screen, which stops reading as "the graph has come closer" and starts
+  // reading as "something has gone wrong with the zoom". The move only needs
+  // to be felt, not announced: enough that the sphere has more presence beside
+  // the card than it has anywhere else in the sequence, and enough crop at the
+  // edge that it reads as continuing past the frame rather than sitting in it.
+  heroLeft: 0.9,
+  knight: 0.86,
+  knightHold: 0.78,
 };
 
 /**
@@ -289,25 +389,127 @@ function centerPerson(nodes: PNode[], positions: Vec3[]): Vec3[] {
   return out;
 }
 
-/** One soft white disc, tinted per node by the sprite material. Shared by every dot. */
-function makeDotTexture() {
+/**
+ * A star, as an alpha profile.
+ *
+ * The old texture was opaque out to 40% of its radius and then faded — which
+ * is a *bubble*: a flat disc with a soft edge, and at a hundred of them on a
+ * pale page it read exactly like one, a field of blue soap. A star does not
+ * look like that. A star is a point the eye cannot resolve, so what you
+ * actually see is a tiny blown-out core, an Airy disc around it, and a long
+ * faint halo that falls away for a surprisingly long distance.
+ *
+ * That is what this draws, per pixel rather than through gradient stops,
+ * because the shape that matters is the *rate* the falloff changes at and a
+ * handful of stops cannot describe it. Three terms: core, glow, halo. Plus
+ * four faint diffraction spikes, which are strictly an artefact of camera
+ * optics rather than anything a star does — and which are, for that exact
+ * reason, the single strongest "this is a star" signal there is.
+ *
+ * The core is kept at 22% of the radius rather than the 5% a real point
+ * source would give. One texture serves both a 20-unit person node and a
+ * 4-unit mote, and a core tuned to look right on the former is sub-pixel on
+ * the latter: the dust would simply stop existing. 22% is the compromise that
+ * keeps the smallest particle a visible point while leaving the largest
+ * looking like a star instead of a disc — and it is why the dust buckets in
+ * DustCloud are set roughly half again as wide as the old ones, since the
+ * quad now has to carry a halo as well as the point at the middle of it.
+ */
+function makeStarTexture() {
   const s = 128;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = s;
   const ctx = canvas.getContext('2d');
   if (ctx) {
-    const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-    g.addColorStop(0, 'rgba(255,255,255,1)');
-    g.addColorStop(0.4, 'rgba(255,255,255,1)');
-    g.addColorStop(0.52, 'rgba(255,255,255,0.75)');
-    g.addColorStop(0.72, 'rgba(255,255,255,0.16)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, s, s);
+    const image = ctx.createImageData(s, s);
+    const mid = (s - 1) / 2;
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const dx = (x - mid) / mid;
+        const dy = (y - mid) / mid;
+        const r = Math.hypot(dx, dy);
+        let a = 0;
+        if (r < 1) {
+          const core = Math.exp(-((r / 0.22) ** 2));
+          const glow = 0.46 * Math.exp(-((r / 0.46) ** 2));
+          const halo = 0.1 * (1 - r) ** 3;
+          // Spikes run along the sprite's own axes, and a sprite always faces
+          // the camera, so they stay screen-aligned however the piece turns.
+          const axis = Math.min(Math.abs(dx), Math.abs(dy));
+          const spike = 0.3 * Math.exp(-((axis / 0.022) ** 2)) * (1 - r) ** 2;
+          a = Math.min(1, core + glow + halo + spike);
+        }
+        const i = (y * s + x) * 4;
+        image.data[i] = 255;
+        image.data[i + 1] = 255;
+        image.data[i + 2] = 255;
+        image.data[i + 3] = Math.round(a * 255);
+      }
+    }
+    ctx.putImageData(image, 0, 0);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   return tex;
+}
+
+/**
+ * The one body in the field that is close enough to have a disc: the person
+ * node, drawn as the sun on the light theme and the moon on the dark one.
+ *
+ * Everything else in this scene is a point source. This is not — it is a
+ * resolved edge with something around it, which is the whole difference
+ * between "the brightest star" and "the thing we are orbiting". Both share a
+ * hard-edged disc; what separates them is what happens outside it. The sun
+ * gets a corona and four long rays. The moon gets neither: airless, no
+ * atmosphere to scatter through, so it is a clean disc with the faintest
+ * possible bloom and nothing radiating off it.
+ *
+ * The texture is greyscale and tinted by the node colour, so the warmth of one
+ * and the coldness of the other come from the palette rather than from here.
+ */
+function makeOrbTexture(rayed: boolean) {
+  const s = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = s;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const image = ctx.createImageData(s, s);
+    const mid = (s - 1) / 2;
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const dx = (x - mid) / mid;
+        const dy = (y - mid) / mid;
+        const r = Math.hypot(dx, dy);
+        let a = 0;
+        if (r < 1) {
+          // A disc with a one-pixel-ish soft edge — resolved, not a point.
+          const edge = rayed ? 0.24 : 0.27;
+          const disc = 1 - smoothstep(edge - 0.03, edge + 0.03, r);
+          const bloom = (rayed ? 0.34 : 0.16) * Math.exp(-((r / (rayed ? 0.42 : 0.34)) ** 2));
+          const halo = (rayed ? 0.13 : 0.05) * (1 - r) ** 2.4;
+          const axis = Math.min(Math.abs(dx), Math.abs(dy));
+          const rays = rayed ? 0.4 * Math.exp(-((axis / 0.03) ** 2)) * (1 - r) ** 1.4 : 0;
+          a = Math.min(1, disc + bloom + halo + rays);
+        }
+        const i = (y * s + x) * 4;
+        image.data[i] = 255;
+        image.data[i + 1] = 255;
+        image.data[i + 2] = 255;
+        image.data[i + 3] = Math.round(a * 255);
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Hermite step, for the orb's edge. */
+function smoothstep(a: number, b: number, t: number) {
+  const x = Math.min(1, Math.max(0, (t - a) / (b - a)));
+  return x * x * (3 - 2 * x);
 }
 
 type Node3D = PNode & {
@@ -343,8 +545,8 @@ type Node3D = PNode & {
  * What the shape needs turns out to be a lot. Seven thousand sounds generous
  * until it is spread over the whole surface of a real model — a knight has
  * some five hundred square millimetres of skin per particle at that count, and
- * the piece reads as a sketch of itself. Twenty thousand is where the surface
- * stops looking sampled and starts looking continuous. The GPU does not care
+ * the piece reads as a sketch of itself. Twenty-six thousand is where the
+ * surface stops looking sampled and starts looking continuous. The GPU does not care
  * (it is still three draw calls); what does care is the frame loop, which is
  * why the keyframes below are flat `Float32Array`s rather than arrays of
  * triples — the per-frame work is then a straight walk through typed memory
@@ -352,11 +554,25 @@ type Node3D = PNode & {
  *
  * They stay inert: no id in the graph, no label, no hover, no click, and no
  * existence at all until the graph has stopped being a graph. They take their
- * colours from the theme's ambient array — the same palette as the page's own
- * background particle field — so they read as the dust the real nodes are
- * suspended in rather than as data being invented.
+ * colours from the theme's `graph.dust` array, which exists for this and only
+ * this: a mote drifting behind a paragraph and a mote holding up a chess piece
+ * want opposite things from a light background, and one array cannot be both.
  */
-const DUST_COUNT = 20000;
+const DUST_COUNT = 26000;
+
+/**
+ * How many of those hang back as a starfield rather than belonging to the
+ * shape.
+ *
+ * The sculpture's own halo reaches maybe 30mm off a 160mm piece, which is the
+ * right distance for something that is part of the object. It is nowhere near
+ * far enough to make the screen feel like space: a knight with a tight halo
+ * and hard nothing beyond it reads as an exhibit under glass. These are the
+ * rest of the sky — spread across a volume wider and taller than the frame,
+ * identical in every keyframe so they never move, and held at half strength so
+ * they stay behind the piece rather than beside it.
+ */
+const FIELD_COUNT = 6500;
 
 const SCULPT_FROM = 1.25;
 const SCULPT_TO = 2.0;
@@ -372,7 +588,7 @@ const SCULPT_TO = 2.0;
  * with the renderer's default 50° field of view those two differ by a factor
  * of 1 / (2 · tan 25°) ≈ 2.15. Which is why the previous pass looked wrong
  * even though the numbers on both sides were the same: dust buckets of
- * 3.6 / 5.6 / 8.6 draw at the size of sprites 1.7 / 2.6 / 4.0, and the nodes —
+ * 7.5 / 11.5 / 17.5 draw at the size of sprites 3.5 / 5.4 / 8.2, and the nodes —
  * a project hub reaching 10 units after its degree bonus — were landing at
  * three or four times that. Hence the two visible populations.
  *
@@ -382,7 +598,7 @@ const SCULPT_TO = 2.0;
  * node one of three fixed sizes is what actually dissolves them into the
  * field.
  */
-const DUST_MATCH = [1.68, 2.61, 4.01];
+const DUST_MATCH = [3.5, 5.36, 8.16];
 /**
  * The person node keeps a little of its status — half again the largest mote,
  * no more. It is still the origin every shape is built around, but in the
@@ -465,12 +681,22 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
    */
   const interactive = useRef(true);
   const dots = useRef(new Map<string, THREE.Sprite>());
+  /** The sun or the moon, depending on the theme. Person node only. */
+  const orb = useRef<THREE.Texture | null>(null);
   const labels = useRef(new Map<string, THREE.Sprite>());
   const dust = useRef<DustCloud | null>(null);
   /** The distance the camera would sit at with no push-in. Solved once, in the camera effect. */
   const fit = useRef(0);
   /** The distance it is actually at, so the dolly only writes when it moves. */
   const camDist = useRef(0);
+  /**
+   * Current and target horizontal dock offset, as a fraction of the visible
+   * width. Held as a fraction rather than in world units so that a dock and a
+   * dolly happening at the same time compose instead of fighting — see DOCK_X.
+   * Starts on the Hero dock so the first frame doesn't slide into place.
+   */
+  const dockX = useRef(DOCK_X.right);
+  const dockTarget = useRef(DOCK_X.right);
 
   const [size, setSize] = useState({ w: 0, h: 0 });
 
@@ -530,19 +756,31 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
    * contiguous slice of it.
    */
   const dustShapes = useMemo<Record<Key, Float32Array>>(() => {
+    // The last slice of every keyframe is the same starfield, so those
+    // particles never move: while the shape in front of them scatters,
+    // reassembles and turns, the sky behind it holds still. That is most of
+    // what sells them as distant rather than as more of the same cloud.
+    const sky = starFieldShape(FIELD_COUNT, 907);
+    const shaped = DUST_COUNT - FIELD_COUNT;
     const flatten = (points: Vec3[]) => {
-      const out = new Float32Array(points.length * 3);
-      for (let i = 0; i < points.length; i++) {
+      const out = new Float32Array(DUST_COUNT * 3);
+      for (let i = 0; i < shaped; i++) {
         out[i * 3] = points[i][0];
         out[i * 3 + 1] = points[i][1];
         out[i * 3 + 2] = points[i][2];
       }
+      for (let i = 0; i < FIELD_COUNT; i++) {
+        const j = (shaped + i) * 3;
+        out[j] = sky[i][0];
+        out[j + 1] = sky[i][1];
+        out[j + 2] = sky[i][2];
+      }
       return out;
     };
-    const ball = flatten(sphereShape(DUST_COUNT));
-    const wide = flatten(scatterShape(DUST_COUNT, 3.0, 71));
-    const mind = flatten(brainShape(DUST_COUNT));
-    const piece = flatten(knightShape(DUST_COUNT));
+    const ball = flatten(sphereShape(shaped));
+    const wide = flatten(scatterShape(shaped, 3.0, 71));
+    const mind = flatten(brainShape(shaped));
+    const piece = flatten(knightShape(shaped));
     return {
       heroRight: ball,
       heroLeft: ball,
@@ -574,10 +812,17 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
   }, []);
 
   useEffect(() => {
-    texture.current = makeDotTexture();
-    const tex = texture.current;
-    return () => tex?.dispose();
-  }, []);
+    texture.current = makeStarTexture();
+    // The orb differs between themes — sun on light, moon on dark — so unlike
+    // the star it has to be rebuilt when the theme flips.
+    orb.current = makeOrbTexture(theme === 'light');
+    const star = texture.current;
+    const body = orb.current;
+    return () => {
+      star?.dispose();
+      body?.dispose();
+    };
+  }, [theme]);
 
   /** Renderer-only setup. See the file header for why these are props, not methods. */
   useEffect(() => {
@@ -599,7 +844,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     if (!fg || !size.w || !map) return;
     const scene = fg.scene?.();
     if (!scene) return;
-    const cloud = new DustCloud(DUST_COUNT, colors.ambient, map, theme !== 'light');
+    const cloud = new DustCloud(DUST_COUNT, colors.dust, map, theme !== 'light');
     for (const points of cloud.objects) scene.add(points);
     dust.current = cloud;
     return () => {
@@ -613,11 +858,15 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     const group = new THREE.Group();
     const dot = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: texture.current ?? undefined,
+        map: (raw.kind === 'person' ? orb.current : texture.current) ?? undefined,
         color: new THREE.Color(raw.color),
         transparent: true,
         opacity: 0.94,
         depthWrite: false,
+        // Additive on the dark theme, so overlapping cores sum toward white
+        // the way real starlight does and a cluster reads as a cluster. On
+        // paper there is nothing to add light to, so it stays a normal blend.
+        blending: theme === 'light' ? THREE.NormalBlending : THREE.AdditiveBlending,
       }),
     );
     const diameter = raw.dot * 3;
@@ -649,14 +898,30 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     labels.current.clear();
   }, [nodes]);
 
-  /** Fixed cinematic camera, framed to hold the widest shape (the far scatter) within this column's own aspect ratio. */
+  /**
+   * Fixed cinematic camera.
+   *
+   * Framed off the canvas *height* rather than its aspect ratio, which is the
+   * change that came with going full-viewport. The old formula solved for the
+   * proportions of a 46vw box, and feeding it a whole screen would have made
+   * everything 20% larger for no reason other than that the element grew.
+   * Holding world-units-per-pixel constant instead means the sculpture is the
+   * same physical size on the page as it was in the box — the canvas got
+   * bigger, the subject did not.
+   *
+   * WORLD_ACROSS is that constant: the world height the old 760px slot showed,
+   * divided by 760. Everything downstream — the framing, the dolly, the dock
+   * offsets — is derived from it, so this one number is the scale of the whole
+   * sequence.
+   */
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg || !size.w || !size.h) return;
     const controls = fg.controls?.();
     if (controls) controls.enabled = false;
-    const aspect = size.w / size.h;
-    const solved = (OUTER * 4.4) / Math.min(1.15, Math.max(0.55, aspect));
+    const WORLD_ACROSS = (OUTER * 4.7) / 760;
+    // 2·tan(fov/2) for the renderer's default 50° vertical field of view.
+    const solved = (size.h * WORLD_ACROSS) / 0.9326;
     fit.current = solved;
     camDist.current = solved;
     fg.cameraPosition(
@@ -687,9 +952,51 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         const from = shapes[fromKey];
         const to = shapes[toKey];
 
+        // The dolly is resolved first, because everything horizontal below is
+        // measured against the visible width and the visible width depends on
+        // where the camera is. Only written when it actually moves, so a
+        // segment with no zoom change costs nothing.
+        const zoomFrom = ZOOM[fromKey] ?? 1;
+        const zoomTo = ZOOM[toKey] ?? 1;
+        const wanted = fit.current * (zoomFrom + (zoomTo - zoomFrom) * localT);
+        if (fit.current && Math.abs(wanted - camDist.current) > 0.4) {
+          camDist.current = wanted;
+          fgRef.current?.cameraPosition(
+            { x: wanted * 0.18, y: wanted * 0.1, z: wanted },
+            { x: 0, y: 0, z: 0 },
+            0,
+          );
+        }
+        // World units across the frame at that distance. 0.9326 is 2·tan(25°),
+        // the renderer's default 50° vertical field of view.
+        const visibleWidth = 0.9326 * camDist.current * (size.w / Math.max(1, size.h));
+
+        // Keyframe pan plus the dock offset, both fractions of that width and
+        // both the same kind of thing — a sideways shift of the whole cloud —
+        // so they are added and the rest of the loop never has to know there
+        // were two of them.
         const panFrom = PAN[fromKey] ?? 0;
         const panTo = PAN[toKey] ?? 0;
-        const panX = (panFrom + (panTo - panFrom) * localT) * OUTER;
+        dockX.current += (dockTarget.current - dockX.current) * DOCK_EASE;
+        let panFrac = panFrom + (panTo - panFrom) * localT + dockX.current;
+
+        // Park the sphere against its own projected edge rather than at a
+        // constant offset — see EDGE. 1.06 covers the silhouette, which sits a
+        // little outside the true radius under perspective, plus the width of
+        // a node's own sprite.
+        //
+        // Keyframes with no entry get 0, which puts the limit at half the
+        // width and constrains nothing: their pan is zero and the dock alone
+        // never reaches that far, so the scatter still overruns the screen and
+        // the knight keeps its own framing.
+        const edgeFrom = EDGE[fromKey] ?? 0;
+        const edgeTo = EDGE[toKey] ?? 0;
+        const edge = edgeFrom + (edgeTo - edgeFrom) * localT;
+        const ballFrac = (OUTER * 1.06) / Math.max(1, visibleWidth);
+        const limit = Math.max(0, 0.5 - ballFrac * edge);
+        panFrac = Math.max(-limit, Math.min(limit, panFrac));
+
+        const panX = panFrac * visibleWidth;
 
         // Roll, interpolated the same way. Zero everywhere except across the
         // lean into the knight — see TILT.
@@ -717,19 +1024,6 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         const half = depthFrom.half + (depthTo.half - depthFrom.half) * localT;
         const back = depthFrom.back + (depthTo.back - depthFrom.back) * localT;
 
-        // Push-in. Only written when it actually moves, so a segment with no
-        // zoom change costs nothing.
-        const zoomFrom = ZOOM[fromKey] ?? 1;
-        const zoomTo = ZOOM[toKey] ?? 1;
-        const wanted = fit.current * (zoomFrom + (zoomTo - zoomFrom) * localT);
-        if (fit.current && Math.abs(wanted - camDist.current) > 0.4) {
-          camDist.current = wanted;
-          fgRef.current?.cameraPosition(
-            { x: wanted * 0.18, y: wanted * 0.1, z: wanted },
-            { x: 0, y: 0, z: 0 },
-            0,
-          );
-        }
 
         /*
          * Cross the same boundary the dust does, once, in either direction.
@@ -861,6 +1155,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           if (sculpt > 0.002) {
             const dFrom = dustShapes[fromKey];
             const dTo = dustShapes[toKey];
+            const FIELD_FROM = DUST_COUNT - FIELD_COUNT;
             for (let i = 0; i < cloud.count; i++) {
               const j = i * 3;
               const x0 = dFrom[j];
@@ -874,7 +1169,9 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
               const fx = rx * cosT - y * sinT;
               const fy = rx * sinT + y * cosT;
               const cue = clamp01(0.5 + (fx * CAM.x + fy * CAM.y + rz * CAM.z) / (2 * half));
-              cloud.set(i, fx, fy, rz, cue);
+              // The starfield is scenery and is held well back: at full
+              // strength it competes with the thing it is behind.
+              cloud.set(i, fx, fy, rz, cue, i < FIELD_FROM ? 1 : 0.5);
             }
           }
           cloud.end();
@@ -937,16 +1234,10 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           'center', // the tail — the knight comes to rest in the middle
         ];
         const dock = DOCK[Math.min(DOCK.length - 1, blockIdx)] ?? 'left';
+        dockTarget.current = DOCK_X[dock];
+
         const slot = slotRef.current;
         if (slot && slot.dataset.side !== dock) {
-          // Slot is 46vw wide inside a full-100vw wrapper (flex, default
-          // flex-start). translateX is relative to the slot's OWN width, so
-          // these percentages were solved for that: ~9% parks its left edge
-          // ~4vw off the true left edge of the screen, ~109% parks its right
-          // edge ~4vw off the true right edge, and ~59% centers it.
-          if (dock === 'left') slot.style.transform = 'translateX(9%)';
-          else if (dock === 'right') slot.style.transform = 'translateX(109%)';
-          else slot.style.transform = 'translateX(59%)'; // centered
           // Dim the graph only where it sits centered *behind* content —
           // Metrics and Proof, whose numbers and compare cards have to stay
           // readable through it. Side docks clear the text column entirely,
@@ -960,7 +1251,17 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [visible, nodes, shapes, dustShapes, highlightIds, activeId]);
+    // `size` belongs in here now and did not use to. Everything horizontal in
+    // the loop is measured against the visible width, which is derived from
+    // the canvas dimensions — so the effect has to re-run when they arrive.
+    // Without it the loop kept the closure from the very first render, when
+    // the ResizeObserver had not reported yet and size was {0, 0}: the visible
+    // width came out as zero, every pan and dock multiplied to nothing, and
+    // the graph sat dead centre. It looked like it corrected itself on hover,
+    // which is the tell — hovering changes highlightIds, highlightIds is a
+    // dependency, and re-running the effect was rebuilding the closure with
+    // the real size in it. The fix is the dependency, not the symptom.
+  }, [visible, nodes, shapes, dustShapes, highlightIds, activeId, size.w, size.h]);
 
   return (
     <section ref={outerRef} id="graph" className={`relative scroll-mt-[24px] ${className}`}>
@@ -969,24 +1270,23 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         on the right (Hero on the left), slides left (Ask AI on the right),
         then continues swapping sides for each captioned stage.
 
-        This wrapper spans the FULL viewport width, not the `.shell`-capped
-        content column the text blocks live in — the graph is meant to swing
-        out toward the actual screen edges the way it does on wide monitors,
-        clear of the narrower text column, not just hop between the two
-        halves of an already-centred 1280px block.
+        The canvas is the entire viewport. It used to be a 46vw box slid around
+        with translateX, which framed the graph correctly and cropped
+        everything else: a canvas is exactly as large as its element, so the
+        dust ended in a hard rectangle with four corners in it. Invisible on
+        black, unmissable on paper.
 
-        The slot itself has `overflow-hidden` and its size is measured from
-        itself, not this outer wrapper — ForceGraph3D's canvas renders at
-        exactly the `width`/`height` props you hand it and does not shrink to
-        fit a smaller parent on its own, so sizing off the wrong (larger)
-        element is what let the canvas balloon past its box and hang off the
-        edge of the screen.
+        Docking moved into world space instead (see DOCK_X), so this element
+        never moves and never clips. What it costs is that the graph now sits
+        under the entire page rather than under one column — which is fine,
+        because it is z-[5] beneath a z-[10] content layer, and everything in
+        that layer which wants a click re-enables pointer events for itself.
+        Empty space still falls through to the nodes.
       */}
-      <div className="pointer-events-none sticky top-0 z-[5] flex h-screen w-full items-center">
+      <div className="pointer-events-none sticky top-0 z-[5] h-screen w-full">
         <div
           ref={slotRef}
-          className="graph-slot pointer-events-auto relative h-[min(760px,82vh)] w-[46vw] overflow-hidden transition-[transform,opacity] duration-700 ease-out"
-          style={{ transform: 'translateX(115%)' }}
+          className="graph-slot pointer-events-auto relative h-full w-full transition-opacity duration-700 ease-out"
           data-side="right"
         >
           {size.w > 0 && (
@@ -1286,7 +1586,9 @@ function MobileJourney({ projects }: { projects?: Project[] }) {
 /** A small, static, non-scroll-driven sphere for mobile — the shape sequence is a desktop-only luxury. */
 function StaticSphere({ nodes, onPick }: { nodes: Node3D[]; onPick: (n: Node3D) => void }) {
   const outerRef = useRef<HTMLDivElement>(null);
+  const [theme] = useTheme();
   const texture = useRef<THREE.Texture | null>(null);
+  const orb = useRef<THREE.Texture | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -1301,10 +1603,15 @@ function StaticSphere({ nodes, onPick }: { nodes: Node3D[]; onPick: (n: Node3D) 
   }, []);
 
   useEffect(() => {
-    texture.current = makeDotTexture();
-    const tex = texture.current;
-    return () => tex?.dispose();
-  }, []);
+    texture.current = makeStarTexture();
+    orb.current = makeOrbTexture(theme === 'light');
+    const star = texture.current;
+    const body = orb.current;
+    return () => {
+      star?.dispose();
+      body?.dispose();
+    };
+  }, [theme]);
 
   useEffect(() => {
     const fg = fgRef.current;
@@ -1324,11 +1631,12 @@ function StaticSphere({ nodes, onPick }: { nodes: Node3D[]; onPick: (n: Node3D) 
   const nodeObject = (raw: Node3D) => {
     const dot = new THREE.Sprite(
       new THREE.SpriteMaterial({
-        map: texture.current ?? undefined,
+        map: (raw.kind === 'person' ? orb.current : texture.current) ?? undefined,
         color: new THREE.Color(raw.color),
         transparent: true,
         opacity: 0.94,
         depthWrite: false,
+        blending: theme === 'light' ? THREE.NormalBlending : THREE.AdditiveBlending,
       }),
     );
     const d = raw.dot * 3;

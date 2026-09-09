@@ -25,11 +25,20 @@ import { usePalette, useTheme } from '@/lib/useTheme';
  * without one clobbering the other, so the old `@keyframes` rule is gone —
  * everything is one write per particle per frame now.
  *
- * The look changed too: less blur. The first pass's box-shadow spread made
- * every particle read as a soft, indistinct glow-blob at any distance, which
- * is what read as "bad" — a small dose of blur close in, no wash of it site-
- * wide. These are meant to look like the actual node dots, seen at a
- * distance, not a fog of colour.
+ * The look changed twice. The first pass's box-shadow spread made every
+ * particle a soft indistinct glow-blob; cutting it back to a small dose close
+ * in fixed the fog but left a second problem, which is that the dot underneath
+ * was a `radial-gradient(circle at 35% 30%, …)` — opaque out to 55% with the
+ * highlight parked off-centre. That is not a distant dot. That is the standard
+ * recipe for drawing a *sphere*, and it read as exactly that: a page of
+ * floating soap bubbles.
+ *
+ * They are stars now, and drawn the same way the WebGL ones are (see
+ * makeStarTexture in GraphJourney): a small hard core, a halo falling away
+ * fast around it, and a faint four-point cross. Three stacked gradients rather
+ * than a canvas, because these are 56 DOM spans and the browser composites
+ * them for free — but the profile is the same profile, so the field behind the
+ * page and the field inside the canvas are the same material.
  */
 
 const COUNT = 56;
@@ -90,7 +99,11 @@ export function AmbientField() {
       // per load, so the balance doesn't shift on refresh.
       const quiet = i % 3 === 0;
       const depth = rand();
-      const size = quiet ? 3 + rand() * 5 : 3 + rand() * 8;
+      // Roughly twice what it was. The old gradient was opaque out to 55% of
+      // the span, so a 6px particle drew a 6px dot; a star spends most of its
+      // radius on halo and cross, so the same visible point needs about twice
+      // the box around it.
+      const size = quiet ? 7 + rand() * 8 : 8 + rand() * 15;
       const opacity = quiet ? 0.3 + rand() * 0.16 : 0.42 + rand() * 0.28;
       return {
         left: rand() * 100,
@@ -184,17 +197,45 @@ export function AmbientField() {
           ref={(el) => {
             refs.current[i] = el;
           }}
-          className="absolute rounded-full will-change-transform"
+          className="absolute will-change-transform"
           style={{
             left: `${p.left}%`,
             top: `${p.top}%`,
             width: p.size,
             height: p.size,
             opacity: p.opacity,
-            background: `radial-gradient(circle at 35% 30%, ${p.color} 0%, ${p.color} 55%, transparent 82%)`,
-            // Glow is a property of light in a dark room. On paper the same
-            // box-shadow is a smudge around the dot, so light mode drops it.
-            boxShadow: light ? 'none' : `0 0 ${p.size * 0.6}px ${p.size * 0.1}px ${p.color}`,
+            /*
+             * Star profile, outermost layer first: the horizontal arm of the
+             * cross, the vertical arm, then the core and its halo on top.
+             *
+             * The arms are ellipses flattened to a few percent on one axis,
+             * which is the cheapest way to get a taper in CSS — a linear
+             * gradient would give a bar with a hard end. They are deliberately
+             * faint: at these sizes the cross is a suggestion rather than a
+             * shape, and it is doing the same job the spikes do in the canvas
+             * texture, which is to say "point source" to a viewer who has
+             * never consciously noticed a diffraction spike in their life.
+             */
+            background: [
+              `radial-gradient(ellipse 50% 3% at 50% 50%, ${p.color} 0%, transparent 72%)`,
+              `radial-gradient(ellipse 3% 50% at 50% 50%, ${p.color} 0%, transparent 72%)`,
+              `radial-gradient(circle at 50% 50%, ${p.color} 0%, ${p.color} 12%, transparent 48%)`,
+            ].join(', '),
+            /*
+             * No box-shadow, deliberately.
+             *
+             * There used to be one, for glow, and it only ever worked because
+             * the element was also `rounded-full`. A box-shadow traces the
+             * border box and knows nothing about the alpha painted inside it,
+             * so the moment the star profile made the border-radius pointless
+             * and it came off, every particle grew a visible square halo. That
+             * is the correct behaviour for a box-shadow and entirely wrong
+             * here.
+             *
+             * The glow belongs in the gradient anyway, where it falls off from
+             * the core rather than outlining a rectangle — which is what a
+             * glow actually is.
+             */
           }}
         />
       ))}

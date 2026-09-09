@@ -19,16 +19,6 @@ const GraphJourney = lazy(() =>
 );
 
 /**
- * Same treatment. This one carries its own 856KB model on top of the three.js
- * chunk, so it is deferred as well as lazy — the import does not fire until the
- * section is within 200px of the viewport, which for a section this far down
- * the page means most visitors never pay for it at all.
- */
-const ParticleKnight = lazy(() =>
-  import('@/components/knight/ParticleKnight').then((m) => ({ default: m.ParticleKnight })),
-);
-
-/**
  * Home. The only route.
  *
  * Hero, Ask AI, Metrics, and Proof used to be four separate sections, two of
@@ -103,26 +93,14 @@ export default function Home() {
         </section>
 
         {/*
-          The knight. A fixed height on the wrapper is not optional: the canvas
-          fills its parent, and a parent that derives its height from its
-          children collapses to zero — which renders nothing, silently, with no
-          error in the console.
+          The standalone <ParticleKnight> demo used to sit here — its own canvas,
+          its own 856KB GLB, its own copy of three.js behaviour, showing the same
+          object the scroll journey ends on. Two knights on one page is one
+          knight too many: the finale stops being a payoff if the reader has
+          already met the piece in a box with a caption under it. The component
+          is still in src/components/knight if it is ever wanted elsewhere;
+          nothing imports it now, so it costs nothing to keep.
         */}
-        <section className="shell pt-[120px]">
-          <Reveal>
-            <h2 className="t-heading-lg text-bone">Knight</h2>
-            <p className="t-body mt-[12px] max-w-[54ch] text-mist">
-              16,000 particles sampled from the surface of a 3D mesh. Drag to turn it.
-            </p>
-          </Reveal>
-          <WhenVisible defer rootMargin="200px" className="mt-[36px]">
-            <Suspense fallback={<div className="rounded-[24px] bg-void" style={{ height: '80vh' }} aria-hidden />}>
-              <div className="overflow-hidden rounded-[24px]" style={{ height: '80vh' }}>
-                <ParticleKnight />
-              </div>
-            </Suspense>
-          </WhenVisible>
-        </section>
 
         <Stack />
         <About />
