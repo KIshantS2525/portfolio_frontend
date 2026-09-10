@@ -185,118 +185,131 @@ const dark: Palette = {
 };
 
 /**
- * Light — General Intelligence Company's editorial register. Warm parchment
- * canvas, near-neutral ink, and exactly one chromatic accent (Signal Blue)
- * used the way the spec insists on: as a border and as text, never as a
- * background fill. The only filled surface in the whole theme is Dusk, and
- * it appears on a single button variant — everything else is paper, hairline
- * and ink, the same restraint the reference system uses throughout.
+ * Light — the editorial register, at golden hour, from a photograph.
  *
- *   · Signal Blue #41a1cf is 2.9:1 on Parchment — too low for body text, so
- *     it is reserved for large text, borders and 15px+ labels, matching the
- *     reference's own "outlined action" role for the colour.
- *   · Dusk #1f1f29 is the sole filled surface (buttons only, per spec) and
- *     doubles as the deepest graph/card tint so a handful of elements still
- *     read as "ink" rather than "grey" against the warm canvas.
- *   · Cerulean #0081c0 is the rare saturated punctuation colour — used only
- *     as the constellation's focal node and a card tint, never as UI chrome.
+ * The previous pass warmed the theme by eye and stopped short: an amber
+ * parchment with a cool blue accent, on the reasoning that golden hour is warm
+ * light and cool shadows. That is true of the physics and it was not what was
+ * being asked for. It is now sampled from a specific reference — low sun over
+ * a field, orange sky going to red at the top — and the five colours that came
+ * off it are:
+ *
+ *   #F26734  the burning cloud, the hottest thing in the frame
+ *   #FDA44A  the amber the whole sky sits in
+ *   #F4957A  the salmon of the high cloud away from the sun
+ *   #FAA27D  the peach where that meets the haze
+ *   #FFF285  the pale yellow around the sun itself
+ *
+ * None of those five can be used as they are, and that is not a compromise —
+ * it is what separates a palette from a swatch. Every one of them is a
+ * mid-tone at high saturation, which is correct for a photograph, where they
+ * are being *emitted*, and useless for a page, where they have to be printed.
+ * #FDA44A as body text is 2.1:1. So the set is used in two registers instead:
+ * washed almost to white for the surfaces, where it becomes the light in the
+ * room, and deepened until it holds ink for the type and the sculpture, where
+ * it becomes the pigment. Same hues at both ends — the page is unmistakably
+ * lit by that sky — with sixty points of lightness between them so that the
+ * things that must be legible are.
+ *
+ * The accent went warm with everything else. The old cool blue was the right
+ * call for a theme that was merely warm-tinted and the wrong one for a theme
+ * that is a sunset: one blue link in a page of ember reads as a leftover from
+ * the previous palette, which is exactly what it was. Deepened #F26734 lands
+ * at 5.6:1 on the canvas, so the one accent colour can be the loudest colour
+ * in the reference and still clear AA as body-adjacent text.
+ *
+ * Contrast, measured against the canvas:
+ *   Ink #2f2418 13.8:1 · Bark #4d3d2c 9.5:1 · Driftwood #71604c 5.5:1
+ *   Ember #a8410f 5.6:1 as text, 5.9:1 white-on-fill as a button.
  */
 const light: Palette = {
-  surface: '#fefffc', //        Parchment
-  surfaceRaised: '#ffffff', //  Paper
+  surface: '#fdf3e3', //        Low Sun — #FFF285 and #FAA27D washed into paper
+  surfaceRaised: '#fffaef', //  Lit Paper
 
-  text: '#2c2c2c', //      Graphite       14.6:1
-  textBody: '#444141', //  Charcoal       10.6:1
-  textMuted: '#646464', //  Ash            6.3:1
+  text: '#2f2418', //      Ink            13.8:1 — the hills in silhouette
+  textBody: '#4d3d2c', //  Bark            9.5:1
+  textMuted: '#71604c', //  Driftwood       5.5:1
 
-  accent: '#1f1f29', //     Dusk — the system's one filled surface, buttons only
-  accentHover: '#282834', //  Twilight
-  accentInk: '#ffffff', //  white on Dusk, 15.9:1
-  accentText: '#0f7ea3', //  deepened Signal Blue, 4.7:1 — readable as link/label text
-  emphasis: '#0f7ea3', //   deepened Signal Blue, 4.7:1
-  tertiary: '#0081c0', //   Cerulean — rare vivid punctuation, decorative use only
+  accent: '#a8410f', //     Ember — deepened #F26734, the one filled surface
+  accentHover: '#c04d14', //  Ember Bright
+  accentInk: '#fffaef', //  Lit Paper on Ember, 5.9:1
+  accentText: '#a8410f', //  the same Ember as link and label text, 5.6:1
+  emphasis: '#a8410f', //   Ember, 5.6:1
+  tertiary: '#d97a2b', //   #FDA44A deepened — decorative punctuation only
 
-  hairline: '#dee2de', //  Mist — the green-tinted hairline is the system's signature edge
-  shadow: 'rgba(0, 0, 0, 0.08) 0px 1px 1px 0px, rgba(0, 0, 0, 0.08) 0px 4px 5px 0px',
-  scrollbarThumb: '#dee2de',
-  scrollbarThumbHover: '#b4b8b4',
+  hairline: '#eddcc0', //  Wheat — the warm hairline is the system's signature edge
+  shadow: 'rgba(120, 70, 20, 0.11) 0px 1px 1px 0px, rgba(120, 70, 20, 0.11) 0px 4px 5px 0px',
+  scrollbarThumb: '#eddcc0',
+  scrollbarThumbHover: '#d9bd93',
 
+  /*
+   * The switch shows the destination, so the light half is the reference
+   * photograph reduced to four gradients: pale yellow into amber for the band,
+   * amber into the burning orange for the sky, a hot core for the sun, and the
+   * hills going to silhouette underneath it.
+   */
   toggle: {
-    band: ['#9fdef2', '#41a1cf'],
-    sky: ['#41a1cf', '#0081c0'],
-    orb: ['#dee2de', '#41a1cf'],
-    ridge: ['#646464', '#282834'],
+    band: ['#fff285', '#fda44a'],
+    sky: ['#fda44a', '#f26734'],
+    orb: ['#fff8d0', '#fda44a'],
+    ridge: ['#8a4a24', '#3a2110'],
   },
 
   graph: {
     /*
-     * Light-mode graph palette, built as an ink wash rather than a set of
-     * hues. The first pass had this exactly backwards: `tech` is by far the
-     * most numerous kind — up to 45 of them against two roles — and it was set
-     * to Graphite, so the densest layer of the constellation was also the
-     * heaviest and the whole field read as dirt scattered on the page.
+     * The same sky as the dark theme, printed rather than lit — and now
+     * printed at a different hour.
      *
-     * The same sky as the dark theme, printed rather than lit.
+     * Two earlier attempts built a ramp of a single hue, first ink then blue,
+     * on the theory that a light theme should stay near-monochrome. Restraint
+     * is right for type and chrome. A constellation is not chrome, and a sky
+     * rendered in one hue is not a sky.
      *
-     * Two attempts at this were wrong in the same way. Both built a ramp of a
-     * single hue — first ink, then blue — on the theory that a light theme
-     * should stay near-monochrome, and both produced a page of grey and blue
-     * bubbles with no life in them. Restraint is right for type and chrome. A
-     * constellation is not chrome, and a sky rendered in one hue is not a sky.
+     * What survives from the dark theme is the *assignment*: person is the
+     * resolved body, roles are few and hot, projects are the structural
+     * colour, tech is the numerous quiet swarm. What changes is that the
+     * bodies are now being seen through a sunset rather than against a void,
+     * so the warm kinds come straight off the reference and the two cool ones
+     * come from where the reference is still cool — the band of sky opposite
+     * the sun, and the violet where the high cloud has already lost the light.
      *
-     * So the kinds carry the same stellar assignments they do on black: blue
-     * giant, orange giant, yellow, violet nebula, blue-white swarm. One thing
-     * has to change, and it is not the hue. Real star colours are all tints of
-     * white — #8fb6ff and #ffe6a3 are within twenty points of lightness of
-     * Parchment, and on Parchment they are simply not there. Printing a sky
-     * means keeping the hues and inverting the value, so every colour below is
-     * its dark-theme counterpart taken down until it reads as ink. The
-     * relationships survive; the luminance flips, because it has to.
-     *
-     * The range stays deliberately narrow at both ends. The first ink ramp ran
-     * from Twilight #282834 to Fog #b4b8b4 — seventy points of lightness,
-     * survivable while nodes were nodes and fatal once the graph became a
-     * sculpture. At that point every node is the same size as the motes around
-     * it, so projects were near-black blots and forty-five tech nodes sat so
-     * close to the paper they weren't there: speckled and moth-eaten at once.
+     * The two cool notes are load-bearing rather than decorative. Forty-five
+     * tech nodes and a dozen projects rendered in the same orange family as
+     * everything else is not a warm palette, it is a single-hue palette with
+     * extra steps, and the graph stops being readable as a graph the moment
+     * two kinds cannot be told apart.
      */
-    person: '#e08700', //      The Sun — amber, rayed, the only resolved body.
-    role: '#c1440e', //        Orange giant, in ink.
-    project: '#2f5fd0', //     Blue giant.
-    achievement: '#b07400', // Yellow, deepened until it survives paper.
-    domain: '#7a4bc4', //      Nebula violet.
-    tech: '#8fa3c4', //        Blue-white swarm — the quietest, as always.
-    link: '#8fa3c4',
+    person: '#e2620f', //      The Sun, low and orange — the only resolved body.
+    role: '#b8431a', //        #F26734 deepened — few, hot, conspicuous.
+    project: '#3a5f9e', //     The sky opposite the sun, still holding its blue.
+    achievement: '#a8811a', // #FFF285 deepened until it survives paper.
+    domain: '#7d5296', //      The violet where the high cloud has lost the light.
+    tech: '#8f8172', //        Warm haze — the swarm, and the quietest.
+    link: '#c3b49a',
     /*
-     * Decorative only. These drift across the whole page behind the content,
-     * so anything with real weight in here reads as a smudge on the canvas
-     * rather than a distant node — hence blues and the two lightest neutrals,
-     * nothing from the dark end of the scale.
+     * Decorative only, and pale on purpose — these drift across the whole page
+     * behind the text, so anything with real weight reads as a smudge on the
+     * canvas rather than as a distant mote. All five sit between 1.4:1 and
+     * 1.9:1 against the canvas, which is the band where a particle is
+     * perceptible without ever competing with a word.
      */
+    ambient: ['#e5a97f', '#e8bd7e', '#e3ab97', '#e7b899', '#ded39a'],
     /*
-     * Pale on purpose — these drift across the whole page behind the text, so
-     * anything with real weight reads as a smudge on the canvas rather than a
-     * distant node. But pale is not the same as grey: these are the node hues
-     * washed out, not neutrals, so the light field has the same range of
-     * colour the dark one does at a fraction of the strength.
-     */
-    ambient: ['#8ea8dc', '#e0b478', '#c99a8a', '#a99ad0', '#c9d2ce'],
-    /*
-     * Dust, and emphatically not the ambient set. Three of those five —
-     * #8fc4dd, #c9d2ce, #dee2de — are within fifteen points of lightness of
-     * Parchment, which is exactly what a background mote wants and exactly
-     * what a sculpture cannot use: three fifths of the knight was invisible,
-     * and the two that weren't are the strongest blues in the system, so what
-     * remained read as a scatter of loud dots rather than a solid object.
+     * Dust, and emphatically not the ambient set. A background mote wants to
+     * be barely there; a particle holding up a chess piece cannot be, or the
+     * piece is not there either. These are the same five reference colours
+     * taken down to between 2.6:1 and 4.0:1 — dark enough that the sculpture
+     * has a silhouette, light enough that twenty thousand of them do not read
+     * as a stain.
      *
-     * These are the node hues again, lightened one step so the dust stays
-     * quieter than the things suspended in it, and every one of them still
-     * clearly darker than the page. The depth cue works on alpha, so the far
-     * side of the piece fades toward the paper rather than toward black —
-     * which is the correct direction for a light theme, and is why nothing
-     * here needs to be pale to begin with.
+     * All warm, unlike the node set above, and for the opposite reason: the
+     * nodes have to be told apart from each other and the dust has to read as
+     * one material. Once the graph becomes a sculpture there is no such thing
+     * as a kind any more, so the field can be a single ember palette — which
+     * is what makes the knight look carved out of the sunset rather than
+     * assembled from five different things.
      */
-    dust: ['#4a74d6', '#e69a2b', '#cc5c2a', '#8d63cc', '#7f92b8'],
+    dust: ['#c9531c', '#cf8b22', '#b96a4e', '#c07a4f', '#a8901f'],
     linkAlpha: 0.14,
     dimAlpha: 0.14,
     ambientScale: 1.1,
@@ -304,11 +317,11 @@ const light: Palette = {
   },
 
   cardTints: {
-    base: '#1f1f29',
-    project: '#41a1cf',
-    tech: '#0081c0',
-    role: '#282834',
-    achievement: '#444141',
+    base: '#8f3a12',
+    project: '#c04a17',
+    tech: '#d9a03a',
+    role: '#a8410f',
+    achievement: '#7a5a2a',
   },
 };
 

@@ -173,17 +173,27 @@
   }
 
   /*
-   * A page of paper is never one flat value. This is a barely-there warm
-   * gradient — three stops inside four points of lightness — so the canvas
-   * reads as stock rather than as #ffffff. Dark mode stays pure void: there
-   * the flatness is the point.
+   * A page of paper is never one flat value, and a page with the sun on it is
+   * emphatically not.
+   *
+   * This used to be a barely-there wash — three stops inside four points of
+   * lightness, enough to say "stock" instead of "#ffffff" and no more. That is
+   * the right amount of gradient for a neutral theme and far too little for
+   * this one, because the light theme is now a time of day rather than a shade
+   * of white, and a time of day has a *direction*. So the stops open up: a hot
+   * near-white where the light comes in over the top of the page, the amber
+   * canvas through the middle, and a deeper sand at the bottom where the page
+   * falls away from the source. Fixed attachment, so the gradient belongs to
+   * the window rather than to the document and the light does not scroll off.
+   *
+   * Dark mode stays pure void. There the flatness is the point.
    */
   :root[data-theme='light'] body {
     background-image: radial-gradient(
-      118% 74% at 50% -12%,
-      #ffffff 0%,
-      var(--surface) 46%,
-      #f6f7f3 100%
+      124% 78% at 50% -14%,
+      #fffdf0 0%,
+      var(--surface) 44%,
+      #f7e2ba 100%
     );
     background-attachment: fixed;
   }

@@ -1,8 +1,10 @@
 import { Reveal } from '@/components/core/Reveal';
 import { CopyEmail } from '@/components/core/CopyEmail';
-import { profile } from '@/lib/content';
+import { useProfile } from '@/lib/useContent';
 
 export function Contact() {
+  const profile = useProfile();
+
   return (
     <section id="contact" className="shell scroll-mt-[96px] pt-[120px]">
       <Reveal>

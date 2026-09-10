@@ -1,6 +1,8 @@
-import { profile } from '@/lib/content';
+import { useProfile } from '@/lib/useContent';
 
 export function Footer() {
+  const profile = useProfile();
+
   return (
     <footer className="shell pb-[60px] pt-[96px]">
       <div className="hairline mb-[24px]" />

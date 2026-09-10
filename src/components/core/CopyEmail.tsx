@@ -1,9 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { profile } from '@/lib/content';
+import { useProfile } from '@/lib/useContent';
 
 export function CopyEmail({ className = '' }: { className?: string }) {
+  // The whole point of the component is the address, so this is the one that
+  // mattered most: it was copying the build-time email to the clipboard.
+  const profile = useProfile();
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {

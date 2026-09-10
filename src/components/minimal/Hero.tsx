@@ -5,7 +5,7 @@ import { lazy, Suspense, useState } from 'react';
 import { Reveal } from '@/components/core/Reveal';
 import { WhenVisible } from '@/components/core/WhenVisible';
 import { GraphReadout } from '@/components/graph/GraphReadout';
-import { profile } from '@/lib/content';
+import { useProfile } from '@/lib/useContent';
 import { prefillAsk } from '@/lib/ask';
 import { useProjects } from '@/lib/useContent';
 import type { GraphNode } from '@/lib/graph';
@@ -32,6 +32,7 @@ export function Hero() {
     if (node) prefillAsk(`Tell me about ${node.label}`);
   };
 
+  const profile = useProfile();
   const [first, ...rest] = profile.name.split(' ');
 
   return (

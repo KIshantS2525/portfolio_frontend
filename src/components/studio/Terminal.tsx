@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVisible } from '@/components/core/WhenVisible';
-import { profile } from '@/lib/content';
+import { useProfile } from '@/lib/useContent';
 
 type Line = { kind: 'cmd' | 'fail' | 'arrow'; text: string; short?: string };
 
@@ -40,6 +40,7 @@ const PRINT_MS = 190; // per output line
 const PAUSE_MS = 420; // beat before the next command
 
 export function Terminal() {
+  const profile = useProfile();
   const visible = useVisible();
   const [line, setLine] = useState(0);
   const [chars, setChars] = useState(0);

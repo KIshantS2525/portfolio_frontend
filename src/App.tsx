@@ -4,7 +4,7 @@ import Home from '@/routes/Home';
 import { SmoothScroll } from '@/components/core/SmoothScroll';
 import { AmbientField } from '@/components/core/AmbientField';
 import { DayNightToggle } from '@/components/core/DayNightToggle';
-import { profile } from '@/lib/content';
+import { useProfile } from '@/lib/useContent';
 
 /** Admin is its own chunk — none of it ships to a visitor who never opens it. */
 const Admin = lazy(() => import('@/routes/Admin'));
@@ -21,6 +21,10 @@ const Admin = lazy(() => import('@/routes/Admin'));
  */
 function RouteMeta() {
   const { pathname } = useLocation();
+  // Live, not compiled — a name changed in the admin panel should change the
+  // browser tab too, and `profile` in the deps below is what makes the title
+  // re-apply when the fetch lands a beat after the first paint.
+  const profile = useProfile();
 
   useEffect(() => {
     document.title = pathname.startsWith('/admin')
@@ -31,7 +35,7 @@ function RouteMeta() {
     if (canonical) canonical.href = new URL('/', window.location.origin).href;
 
     window.scrollTo(0, 0);
-  }, [pathname]);
+  }, [pathname, profile.name, profile.title]);
 
   return null;
 }

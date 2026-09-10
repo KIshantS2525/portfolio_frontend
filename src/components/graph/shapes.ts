@@ -51,44 +51,264 @@ export function sphereShape(count: number): Vec3[] {
   });
 }
 
-/** A uniform ball of debris. `spread` is the radius as a multiple of OUTER. */
+/**
+ * The opened-out cloud, as a slab rather than a ball.
+ *
+ * This used to be `r = R · cbrt(u)` on a sphere — a uniform ball of debris,
+ * which is the textbook answer and the wrong one here. A ball projects to a
+ * disc, and a uniform ball projects to a disc whose density peaks hard in the
+ * middle (the chord through the centre is the longest one), so the "scatter"
+ * read as a bright clot in the centre of the screen with empty corners around
+ * it. Widening it did not help, because widening a ball also deepens it, and
+ * the depth is bounded by the camera sitting 1,700 units away.
+ *
+ * So it is a box, sized in the same units the frame is: wide enough to run
+ * off both edges of a 16:9 viewport at the sequence's camera distance, tall
+ * enough to run off the top and bottom, and deliberately shallow in z so no
+ * particle ever comes close enough to the lens to bloom into a saucer. A
+ * uniform box viewed square-on has uniform *screen* density, which is exactly
+ * the thing that was being asked for and that no ball can give.
+ *
+ * `spread` scales the whole slab; the 2.54 / 1.55 / 0.42 ratios below are the
+ * frame's own proportions with margin on every side. At the sequence's camera
+ * the visible world is almost exactly 1.61 units per pixel, so at spread 3
+ * this covers a shade under 4,000 × 2,400 units against a 1920 × 950 window's
+ * 3,090 × 1,530 — comfortably past all four edges, at every aspect ratio worth
+ * worrying about, with room left over for the pan.
+ *
+ * Uniform in all three axes, and there was a version of this that was not: it
+ * carried a gentle bell in y, on the theory that a perfectly flat field is
+ * even and even is not the same as composed. It is not a small effect. The
+ * visible band reaches about two standard deviations out, where the density
+ * has fallen to a tenth of what it is in the middle, so what it actually drew
+ * was a bright horizontal stripe fading into empty top and bottom margins —
+ * a different artefact from the one this replaced and no better. Composition
+ * belongs to the sculpture. The field's job is to be everywhere.
+ */
 export function scatterShape(count: number, spread: number, seed: number): Vec3[] {
   const rand = rng(seed);
-  return Array.from({ length: count }, () => {
-    const r = OUTER * spread * Math.cbrt(rand());
-    const theta = 2 * Math.PI * rand();
-    const phi = Math.acos(2 * rand() - 1);
-    return [
-      r * Math.sin(phi) * Math.cos(theta),
-      r * Math.sin(phi) * Math.sin(theta),
-      r * Math.cos(phi),
-    ] as Vec3;
-  });
+  const w = OUTER * spread * 2.54;
+  const h = OUTER * spread * 1.55;
+  const d = OUTER * spread * 0.42;
+  return Array.from({ length: count }, () =>
+    [(rand() * 2 - 1) * w, (rand() * 2 - 1) * h, (rand() * 2 - 1) * d] as Vec3);
 }
 
 /**
- * Two lobes on a shared Fibonacci sphere, split by index parity and separated
- * along x, with a low-frequency sine fold so the surface reads as organic
- * rather than two perfect eggs.
+ * The mind, as a Chladni figure: the nodal lines of a standing wave on a
+ * sphere.
+ *
+ * Fifth pass. The four before it are on the record because each one failed
+ * for a reason the next one had to know, and between them they define what
+ * this medium can and cannot draw.
+ *
+ * One was two lobes on a shared Fibonacci sphere — a brain assembled from its
+ * parts, which is how you get a diagram of the parts. Two eggs in a bag, and
+ * anisotropic enough that the sequence's half-turn swung its projected width
+ * by a third. Two was a single shell folded into real gyri and sulci; on a
+ * shaded surface it would have been a cortex, and as a point cloud it was a
+ * fuzzy ball. Three went filamentary — an arbor grown outward in every
+ * direction — and was a dandelion clock, because a starburst carries no
+ * information: every direction is the same direction. Four was a proper
+ * pyramidal neuron, soma and apical and axon and spines, and it was correct
+ * and legible and looked like a plant.
+ *
+ * The two rules that survive all of that:
+ *
+ *   · **An unshaded point cloud has no surface.** Every particle draws at the
+ *     same brightness whichever way the surface under it faces, so folds,
+ *     curvature and volume are thrown away in projection. Only the places
+ *     where there are points and the places where there are none survive.
+ *     Detail carved into a surface is invisible; detail carved out of the
+ *     outline is all there is.
+ *
+ *   · **Regularity is read before subject.** Anything evenly spaced — thirteen
+ *     identical limbs, an oblique branch at every node — is seen as a pattern
+ *     first and as a thing second, and a pattern looks manufactured.
+ *
+ * A Chladni figure satisfies both without being asked to. It is a set of
+ * closed curves, so it is pure silhouette and nothing is wasted on a surface
+ * that cannot be shown. The curves are the zero set of a random superposition
+ * of harmonics, so they are perfectly irregular while being generated by a
+ * single rule — no two loops the same, nothing evenly spaced, and no
+ * arbitrary choices to hand-tune. And it lives exactly on a sphere, which
+ * makes it the one candidate that is rotation-stable by construction rather
+ * than by careful arrangement: extents come out within half a percent of each
+ * other on all three axes, so the half-turn cannot change the size, only the
+ * view.
+ *
+ * It is also the only shape that earns its place in the sequence. The screen
+ * before this one is "Everything, connected." over a plain sphere of radius
+ * OUTER. This is the *same sphere at the same radius*, with its points
+ * gathered onto the nodal lines of a wave running through it — which is
+ * literally the experiment Chladni did: scatter sand on a plate, sound it,
+ * and the sand migrates off the moving parts and collects where the plate is
+ * standing still. So "One mind behind all of it" is the sphere revealing that
+ * it was resonating the whole time, and it is the same material rearranged,
+ * not a new object cutting in.
+ *
+ * What carries "Same mind, different lens" is depth rather than outline. A
+ * half-turn about the vertical axis always mirrors a silhouette — that is
+ * true of any shape and is not worth fighting. What changes here is which
+ * strands are in front of which, and with a dozen curves crossing over a
+ * transparent shell that is a completely different picture. Hence the low
+ * `back` value in SHAPE_DEPTH: the front of the cage runs bright and the far
+ * side falls well away, so the weave reads as a weave and the turn shows you
+ * the other side of it.
  */
-export function brainShape(count: number): Vec3[] {
-  const sep = OUTER * 0.36;
-  const rx = OUTER * 0.6;
-  const ry = OUTER * 0.5;
-  const rz = OUTER * 0.56;
-  const perLobe = Math.ceil(count / 2);
-  return Array.from({ length: count }, (_, i) => {
-    const side = i % 2 === 0 ? -1 : 1;
-    const j = Math.floor(i / 2);
-    const y = perLobe === 1 ? 0 : 1 - (j / (perLobe - 1)) * 2;
-    const r = Math.sqrt(Math.max(0, 1 - y * y));
-    const th = GA * i;
-    const fold = 1 + 0.1 * Math.sin(y * 6 + th * 2);
-    return [
-      Math.cos(th) * r * rx * fold + side * sep,
-      y * ry,
-      Math.sin(th) * r * rz * fold,
-    ] as Vec3;
+
+/** The cage sits on the same shell the plain sphere does. That is the point. */
+const MIND_RADIUS = OUTER;
+/**
+ * Harmonic degree — how many times the wave crosses zero going round.
+ *
+ * Rendered at 6, 8, 10 and 12 before choosing. 6 is too plain: four or five
+ * fat loops and the sphere reads as a beach ball. 12 is too fine — the
+ * strands thin out past what a mote can hold and the front and back of the
+ * cage start to interfere into noise. 10 is where the weave has enough
+ * crossings that the half-turn genuinely changes the picture, and each strand
+ * is still a strand.
+ */
+const MIND_DEGREE = 10;
+/** How many random zonal harmonics are summed. More is more irregular. */
+const MIND_TERMS = 7;
+/** Newton steps onto the nodal set. It is quadratic; five is plenty. */
+const MIND_STEPS = 5;
+/** Half-width of a strand, and the shell's thickness, as fractions of the radius. */
+const MIND_STRAND = 0.011;
+const MIND_SHELL = 0.009;
+
+export function mindShape(count: number, seed = 0x51ab): Vec3[] {
+  const rand = rng(seed);
+
+  /*
+   * The field, as a sum of zonal harmonics about random axes.
+   *
+   * A sum of P_l(a·u) terms is itself a degree-l spherical harmonic — which
+   * is the whole trick here. It gives a genuine random wave of a chosen
+   * degree using nothing but a Legendre recurrence and some random unit
+   * vectors: no associated Legendre functions, no factorials, no table of
+   * coefficients to carry around, and no risk of accidentally landing on one
+   * of the symmetric textbook modes that would look designed.
+   */
+  const axes = new Float64Array(MIND_TERMS * 3);
+  const coef = new Float64Array(MIND_TERMS);
+  for (let j = 0; j < MIND_TERMS; j++) {
+    // A uniform point on the sphere — z uniform, then the ring around it.
+    const z = 2 * rand() - 1;
+    const th = 2 * Math.PI * rand();
+    const r = Math.sqrt(Math.max(0, 1 - z * z));
+    axes[j * 3] = Math.cos(th) * r;
+    axes[j * 3 + 1] = z;
+    axes[j * 3 + 2] = Math.sin(th) * r;
+    coef[j] = rand() * 2 - 1;
+  }
+
+  return Array.from({ length: count }, (_, i): Vec3 => {
+    /*
+     * Start where the plain sphere put this very point.
+     *
+     * This is the same golden-angle formula sphereShape uses, and using it is
+     * what makes the transition mean something. Newton converges to the
+     * *nearest* root, so every point slides the shortest distance across the
+     * shell from where it already was onto the nodal line closest to it —
+     * which is exactly what sand on a Chladni plate does. The morph is
+     * therefore not a hundred points flying across the screen to new
+     * addresses; it is the sphere's own surface migrating a short way and
+     * settling into a pattern that was always implied by it.
+     *
+     * It also means the density along the curves is the real one: a strand
+     * with a lot of shell draining into it ends up brighter than one with
+     * little. Nobody chose that. It falls out of the physics.
+     */
+    const y0 = count === 1 ? 0 : 1 - (i / (count - 1)) * 2;
+    const ring = Math.sqrt(Math.max(0, 1 - y0 * y0));
+    const th0 = GA * i + 0.6;
+    let ux = Math.cos(th0) * ring;
+    let uy = y0;
+    let uz = Math.sin(th0) * ring;
+
+    for (let step = 0; step < MIND_STEPS; step++) {
+      let f = 0;
+      let gx = 0;
+      let gy = 0;
+      let gz = 0;
+      for (let j = 0; j < MIND_TERMS; j++) {
+        const ax = axes[j * 3];
+        const ay = axes[j * 3 + 1];
+        const az = axes[j * 3 + 2];
+        const t = ux * ax + uy * ay + uz * az;
+        /*
+         * P_l(t) and P_l'(t) by joint recurrence.
+         *
+         * The closed form for the derivative, l(t·P_l − P_{l−1})/(t²−1),
+         * divides by zero at the poles of every single axis — and with seven
+         * random axes there is always a point sitting near one of them.
+         * Carrying the derivative through its own recurrence costs three
+         * multiplies a step and is finite everywhere.
+         */
+        let p0 = 1;
+        let d0 = 0;
+        let p1 = t;
+        let d1 = 1;
+        for (let k = 2; k <= MIND_DEGREE; k++) {
+          const p2 = ((2 * k - 1) * t * p1 - (k - 1) * p0) / k;
+          const d2 = ((2 * k - 1) * (p1 + t * d1) - (k - 1) * d0) / k;
+          p0 = p1;
+          p1 = p2;
+          d0 = d1;
+          d1 = d2;
+        }
+        f += coef[j] * p1;
+        gx += coef[j] * d1 * ax;
+        gy += coef[j] * d1 * ay;
+        gz += coef[j] * d1 * az;
+      }
+
+      // Only the part of the gradient along the surface can move a point that
+      // has to stay on the shell.
+      const radial = gx * ux + gy * uy + gz * uz;
+      const tx = gx - radial * ux;
+      const ty = gy - radial * uy;
+      const tz = gz - radial * uz;
+      const n2 = tx * tx + ty * ty + tz * tz;
+      if (n2 < 1e-12) break;
+
+      // Step, capped. Near a saddle the tangential gradient goes to nothing
+      // and an uncapped Newton step throws the point clean off the sphere;
+      // capping turns those few cases into a slow walk that still arrives.
+      let s = -f / n2;
+      const reach = Math.abs(s) * Math.sqrt(n2);
+      if (reach > 0.35) s *= 0.35 / reach;
+
+      ux += s * tx;
+      uy += s * ty;
+      uz += s * tz;
+      const len = Math.hypot(ux, uy, uz) || 1;
+      ux /= len;
+      uy /= len;
+      uz /= len;
+
+      if (step === MIND_STEPS - 1) {
+        // Strand width, laid across the curve rather than in a random
+        // direction: the tangential gradient points straight across the nodal
+        // line, so offsetting along it thickens the strand evenly instead of
+        // making each sample a little ball.
+        const tn = Math.sqrt(n2);
+        const w = (rand() - 0.5) * 2 * MIND_STRAND;
+        ux += (tx / tn) * w;
+        uy += (ty / tn) * w;
+        uz += (tz / tn) * w;
+        const l2 = Math.hypot(ux, uy, uz) || 1;
+        ux /= l2;
+        uy /= l2;
+        uz /= l2;
+      }
+    }
+
+    // A little thickness through the shell, so the cage is made of something.
+    const rr = MIND_RADIUS * (1 + (rand() - 0.5) * 2 * MIND_SHELL);
+    return [ux * rr, uy * rr, uz * rr];
   });
 }
 
@@ -96,22 +316,30 @@ export function brainShape(count: number): Vec3[] {
  * A slab of sky, wider and taller than any frame it will be shown in.
  *
  * Uniform inside a box rather than a ball, because a ball projects to a disc
- * and the corners of the screen stay conspicuously empty — which is the same
- * complaint as the rectangle it is meant to fix, just with rounder edges. The
- * box is deliberately shallow in z: these are meant to read as far away and
- * still, and a particle that swings a long way through depth as the cloud
- * turns reads as part of the cloud.
+ * and the corners of the screen stay conspicuously empty.
  *
- * Nothing here is seeded off the shapes, and the same array is used for every
- * keyframe, so a starfield particle occupies one position for the entire
- * sequence and simply sits there while the sculpture forms in front of it.
+ * Two things about it changed after it was caught red-handed producing the
+ * exact artefact it was written to prevent. The box was 10.8 × 6.4 OUTER,
+ * which at the sequence's camera distance is *narrower than the viewport* —
+ * so its left and right faces were on screen. And it was being fed through
+ * the same yaw as the sculpture, so by the time the cloud opened out the
+ * whole sky had been turned 72° about the vertical axis and was presenting
+ * its shallow z face to the camera: a bright rectangle of stars about half a
+ * screen wide, with two hard vertical edges, sitting in the middle of the
+ * page. A div, in other words, which is precisely what the full-viewport
+ * canvas had been built to get rid of.
+ *
+ * It is bigger now — comfortably past every edge at any sane aspect ratio —
+ * and, more importantly, GraphJourney no longer pans, yaws or rolls it. It is
+ * scenery: it sits still while the sculpture forms in front of it, which is
+ * what the previous version's comment claimed and the code did not do.
  */
 export function starFieldShape(count: number, seed: number): Vec3[] {
   const rand = rng(seed);
   return Array.from({ length: count }, () => [
-    (rand() * 2 - 1) * OUTER * 5.4,
-    (rand() * 2 - 1) * OUTER * 3.2,
-    (rand() * 2 - 1) * OUTER * 1.3,
+    (rand() * 2 - 1) * OUTER * 7.4,
+    (rand() * 2 - 1) * OUTER * 4.2,
+    (rand() * 2 - 1) * OUTER * 1.1,
   ] as Vec3);
 }
 
@@ -290,7 +518,29 @@ export function knightShape(count: number, seed = 0x4e19): Vec3[] {
  */
 export const SHAPE_DEPTH: Record<string, { half: number; back: number }> = {
   sphere: { half: OUTER, back: 0.62 },
-  scatter: { half: OUTER * 2.4, back: 0.7 },
-  brain: { half: OUTER * 0.62, back: 0.55 },
+  /*
+   * The scatter's range is far wider than its actual depth, and deliberately.
+   * The cue is a dot with the view axis, and the view axis has a small but
+   * non-zero x component — so on a slab that is 3,900 units wide and 570 deep,
+   * a range set to the *depth* would shade the left of the screen against the
+   * right and put a gradient across the page. Sized to the full diagonal
+   * instead, and floored high, the slab stays an even field.
+   */
+  scatter: { half: OUTER * 2.6, back: 0.72 },
+  /*
+   * The arbor reaches about 1.15 OUTER along every axis, and its back is
+   * allowed to go darker than the sphere's because it has a genuine front and
+   * back — branches crossing in front of other branches is most of what tells
+   * you it is a tree in space rather than a snowflake printed on the page.
+   */
+  /*
+   * The cage is exactly a sphere, so the range is the sphere's — but `back`
+   * runs far darker than the plain sphere's 0.62. That difference is the
+   * whole of "Same mind, different lens": a half-turn mirrors any silhouette,
+   * so the only thing that can distinguish the two views is which strands
+   * read as near and which as far. At 0.62 the weave flattens into a doodle
+   * on a circle. At 0.3 the front of the cage is plainly in front.
+   */
+  mind: { half: OUTER, back: 0.3 },
   knight: { half: 220, back: 0.3 },
 };

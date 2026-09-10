@@ -1,7 +1,11 @@
 import { Reveal } from '@/components/core/Reveal';
-import { about, education, skills, achievements } from '@/lib/content';
+import { about, education, skills } from '@/lib/content';
+import { useAchievements } from '@/lib/useContent';
 
 export function About() {
+  // `about`, `education` and `skills` are not in the admin tree, so they stay
+  // compiled. Achievements are, so they must not.
+  const achievements = useAchievements();
   return (
     <section id="about" className="shell scroll-mt-[96px] pt-[120px]">
       <Reveal>

@@ -11,7 +11,7 @@ import { Footer } from '@/components/core/Footer';
 import { WhenVisible } from '@/components/core/WhenVisible';
 import { Reveal } from '@/components/core/Reveal';
 import { useProjects } from '@/lib/useContent';
-import { profile } from '@/lib/content';
+import { useProfile } from '@/lib/useContent';
 
 /** Lazy for the same reason every three.js entry point on this site is: it never touches first paint. */
 const GraphJourney = lazy(() =>
@@ -32,6 +32,7 @@ const GraphJourney = lazy(() =>
  * Everything from "Work" down is unchanged: normal document flow, no pinning.
  */
 export default function Home() {
+  const profile = useProfile();
   const { projects } = useProjects();
 
   return (

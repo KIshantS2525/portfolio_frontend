@@ -7,7 +7,38 @@
  * There is no continuous simulation and no force-graph library at runtime.
  */
 
-import { projects as staticProjects, roles, achievements, profile, type Project } from './content';
+import {
+  projects as staticProjects,
+  roles as staticRoles,
+  achievements as staticAchievements,
+  profile as staticProfile,
+  type Achievement,
+  type Profile,
+  type Role,
+  type Project,
+} from './content';
+
+/**
+ * The non-project halves of the tree the graph is built from.
+ *
+ * These used to be read straight off the module-level imports, which meant
+ * the graph was hard-wired to the build-time content no matter what the admin
+ * panel said — a renamed company or a new achievement changed the readout
+ * card and not the node it was attached to. Passing them in makes the whole
+ * graph a function of its inputs, so the live tree and the compiled one go
+ * down the same path and the only difference is which object arrives.
+ */
+export type GraphSource = {
+  roles: Role[];
+  achievements: Achievement[];
+  profile: Profile;
+};
+
+export const staticSource: GraphSource = {
+  roles: staticRoles,
+  achievements: staticAchievements,
+  profile: staticProfile,
+};
 
 export type NodeKind = 'person' | 'role' | 'project' | 'domain' | 'tech' | 'achievement';
 
@@ -60,8 +91,13 @@ const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').repla
  * @param projectList defaults to content.ts; pass a merged list to include
  *        projects added through the admin panel.
  */
-export function buildGraph(dense = true, projectList: Project[] = staticProjects): Graph {
+export function buildGraph(
+  dense = true,
+  projectList: Project[] = staticProjects,
+  source: GraphSource = staticSource,
+): Graph {
   const projects = projectList;
+  const { roles, achievements, profile } = source;
   const nodes: GraphNode[] = [];
   const links: GraphLink[] = [];
   const seen = new Set<string>();

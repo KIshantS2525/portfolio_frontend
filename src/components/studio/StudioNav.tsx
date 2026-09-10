@@ -3,7 +3,7 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Mark } from '@/components/core/Header';
-import { profile } from '@/lib/content';
+import { useProfile } from '@/lib/useContent';
 
 /**
  * Fixed, not absolute — the original card nav scrolls away with the page, which
@@ -27,18 +27,29 @@ const CARDS = [
       { label: 'Work', href: '#work' },
     ],
   },
-  {
-    title: 'Reach me',
-    links: [
-      { label: 'Email', href: '#contact' },
-      { label: 'GitHub', href: profile.github },
-      { label: 'LinkedIn', href: profile.linkedin },
-    ],
-  },
 ];
 
 export function StudioNav() {
+  const profile = useProfile();
   const [open, setOpen] = useState(false);
+
+  /*
+   * The "Reach me" card used to live in the module-level CARDS array above,
+   * which meant its GitHub and LinkedIn hrefs were frozen at import time — the
+   * one place in this file that could never see an admin edit, however the
+   * component re-rendered. Built here instead, from the live profile.
+   */
+  const cards = [
+    ...CARDS,
+    {
+      title: 'Reach me',
+      links: [
+        { label: 'Email', href: '#contact' },
+        { label: 'GitHub', href: profile.github },
+        { label: 'LinkedIn', href: profile.linkedin },
+      ],
+    },
+  ];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
@@ -91,7 +102,7 @@ export function StudioNav() {
           >
             <div className="overflow-hidden">
               <div className="grid gap-[12px] px-[12px] pb-[12px] sm:grid-cols-3">
-                {CARDS.map((c) => (
+                {cards.map((c) => (
                   <div key={c.title} className="rounded-[18px] border border-ash/15 p-[18px]">
                     <p className="t-caption text-saffron">{c.title}</p>
                     <ul className="mt-[10px] space-y-[6px]">

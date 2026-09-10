@@ -2,7 +2,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { projects, projectBySlug, roles, achievements } from '@/lib/content';
+import type { Achievement, Project, Role } from '@/lib/content';
+import { useAchievements, useProjects, useRoles } from '@/lib/useContent';
 import type { GraphNode } from '@/lib/graph';
 import { usePalette } from '@/lib/useTheme';
 
@@ -40,7 +41,18 @@ export function GraphReadout({
   onPick?: (slug: string) => void;
 }) {
   const palette = usePalette();
-  const body = node ? resolve(node) : null;
+  /*
+   * The readout used to resolve every card against the compiled content.ts —
+   * so a project renamed in the admin panel showed its new name on the node
+   * and its old one in the card that opened when you clicked the node. The
+   * live tree goes in here instead, and `resolve` takes it as an argument
+   * rather than closing over module scope, which is what let it drift in the
+   * first place.
+   */
+  const { projects } = useProjects();
+  const roles = useRoles();
+  const achievements = useAchievements();
+  const body = node ? resolve(node, { projects, roles, achievements }) : null;
   const cardRef = useRef<HTMLDivElement>(null);
 
   /** Escape to close. Only bound when a card is actually open. */
@@ -147,8 +159,15 @@ type Body = {
   related?: { slug: string; name: string }[];
 };
 
-function resolve(node: GraphNode): Body | null {
+type Source = { projects: Project[]; roles: Role[]; achievements: Achievement[] };
+
+function resolve(node: GraphNode, src: Source): Body | null {
   const raw = node.id.split(':').slice(1).join(':');
+  const { projects, roles, achievements } = src;
+  // Local lookup over the live list, replacing content.ts's projectBySlug —
+  // which only ever knew about projects that existed at build time, so an
+  // admin-added project rendered a node that opened an empty card.
+  const projectBySlug = (slug: string) => projects.find((p) => p.slug === slug);
 
   if (node.kind === 'project') {
     const p = projectBySlug(raw);
