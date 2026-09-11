@@ -1,0 +1,264 @@
+/*
+ * The locker room's own tokens.
+ *
+ * Scoped to .locker-room and nothing else. The archive deliberately does not
+ * inherit the site's light/dark theme — it is a place you walk into with its
+ * own dark and its own switch on the wall, not another view of the same page —
+ * so it cannot use --surface, --text and the rest without following whatever
+ * the pull-cord on the homepage last did. These shadow those names locally,
+ * which means WritingPad and the labels can go on using the same variable
+ * names in both rooms and pick up whichever palette they are standing in.
+ */
+.locker-room {
+  --surface: #14161a;
+  --surface-raised: #f2ece0; /* paper, and the only bright surface in here */
+  --text: #1c1a16;
+  --text-body: #3b372f;
+  --text-muted: #8e9299; /* on metal, not on paper — see .paper below */
+  --hairline: #d9d0bd;
+  --accent-text: #d9a04a; /* the strip light, borrowed as an accent */
+  --shadow-card: 0 24px 60px rgba(0, 0, 0, 0.55);
+
+  --lamp: #ffd9a0;
+  --metal: #43474e;
+
+  color-scheme: dark;
+}
+
+/* Text sitting on paper needs the paper's muted grey, not the room's. */
+.locker-room .paper {
+  --text-muted: #6f685c;
+}
+
+/*
+ * Stencilled locker numbers. Condensed, tracked out, and slightly transparent
+ * so they read as painted onto metal rather than printed over it.
+ */
+.locker-num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The strip-light glow behind the open locker's label. */
+.locker-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+/* The pull cord in here hangs on the left, so it never fouls the nav or the
+   writing pad, and so it reads as a switch by the door rather than as the
+   site's theme control wearing a different hat. */
+.lights-pullcord {
+  --pullcord-top: 0px;
+  --pullcord-right: auto;
+  --pullcord-left: 46px;
+}
+
+/*
+ * The terminal screen — a CRT, not a dark dialog.
+ *
+ * ── The bug this block exists to fix ──
+ *
+ * The first version redefined --text, --text-body and --text-muted here and
+ * expected AskAI's `text-bone` / `text-mist` / `text-ash` classes to follow,
+ * because index.css maps them: `--color-mist: var(--text-body)`.
+ *
+ * They do not follow, and the reason is the one genuinely counter-intuitive
+ * rule about CSS custom properties: **var() in a custom property declaration
+ * is substituted where it is DECLARED, not where it is used.** That mapping
+ * lives in @theme, which compiles to :root — so --color-mist is computed once
+ * against the ROOT value of --text-body and inherits down as a finished
+ * colour. Redefining --text-body on a descendant changes nothing, because
+ * --color-mist stopped referring to it the moment it was resolved.
+ *
+ * The site was in light mode, so every AskAI class was faithfully rendering
+ * golden-hour ink — #4b433a, near-black brown — onto a near-black screen.
+ * Not a contrast oversight: two variables that looked linked and were not.
+ *
+ * So the --color-* names are overridden directly below, alongside the
+ * semantic ones. Both sets are needed: components that write var(--text)
+ * follow the first, components that write text-bone follow the second.
+ *
+ * ── The look ──
+ *
+ * Green phosphor, monospace everything, square corners, a bloom on the glass
+ * and a block caret that blinks on a hard step rather than a fade — phosphor
+ * decays fast, and a smoothly pulsing cursor is a 2010s affectation.
+ */
+.terminal-screen {
+  --crt-bg: #04110a;
+  --crt-panel: #071b10;
+  --crt-dim: #2f8f5c;
+  --crt-body: #5fe08d;
+  --crt-text: #8dffb4;
+  --crt-hot: #c9ffd9;
+  --crt-line: #14452b;
+
+  /* For anything written as var(--text) — the pad, the labels, the chrome. */
+  --surface: var(--crt-bg);
+  --surface-raised: var(--crt-panel);
+  --text: var(--crt-text);
+  --text-body: var(--crt-body);
+  --text-muted: var(--crt-dim);
+  --hairline: var(--crt-line);
+  --accent: var(--crt-text);
+  --accent-hover: var(--crt-hot);
+  --accent-ink: var(--crt-bg);
+  --accent-text: var(--crt-text);
+  --emphasis: var(--crt-hot);
+  --tertiary: var(--crt-dim);
+  --shadow-card: 0 18px 44px rgba(0, 0, 0, 0.7);
+
+  /* And for anything written as a Tailwind colour utility. See above. */
+  --color-void: var(--crt-bg);
+  --color-bone: var(--crt-text);
+  --color-ash: var(--crt-dim);
+  --color-mist: var(--crt-body);
+  --color-iris: var(--crt-text);
+  --color-saffron: var(--crt-hot);
+  --color-verdant: var(--crt-dim);
+
+  font-family: var(--font-mono);
+  color: var(--crt-body);
+  /* Phosphor does not have hard edges. This one shadow does more for the
+     illusion than the scanlines do. */
+  text-shadow: 0 0 7px rgba(95, 224, 141, 0.42);
+  color-scheme: dark;
+}
+
+/*
+ * Everything in the box is monospace, including the chat AskAI renders in the
+ * site's serif and sans. `!important` because those are utility classes and
+ * would otherwise win on specificity — scoped to this one panel, which is
+ * exactly the case the escape hatch is for.
+ */
+.terminal-screen *,
+.terminal-screen *::placeholder {
+  font-family: var(--font-mono) !important;
+  letter-spacing: 0.01em;
+}
+
+/* No rounded corners anywhere. A 1983 terminal had no border-radius and the
+   single fastest way to break the illusion is one pill-shaped button. */
+.terminal-screen button,
+.terminal-screen input,
+.terminal-screen textarea,
+.terminal-screen [class*='rounded'] {
+  border-radius: 0 !important;
+}
+
+.terminal-screen ::placeholder {
+  color: var(--crt-dim);
+  opacity: 1;
+}
+.terminal-screen ::selection {
+  background: var(--crt-body);
+  color: var(--crt-bg);
+}
+.terminal-screen textarea,
+.terminal-screen input {
+  caret-color: var(--crt-text);
+  background: transparent;
+}
+
+/* Scanlines. Subtle: at full strength they cost more legibility than they
+   buy atmosphere, and this panel has three hundred words in it. */
+.terminal-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.16) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* Glass: a vignette and a corner falloff, so the image sits behind a curved
+   tube instead of on a flat rectangle. */
+.terminal-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 130% at 50% 45%,
+    transparent 42%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.55);
+}
+
+/*
+ * Mains hum, as a barely-there brightness wobble.
+ *
+ * 0.6% of amplitude and never fully off. A visible flicker is a novelty that
+ * becomes unbearable by the second paragraph, and this panel is for reading.
+ */
+@keyframes crt-hum {
+  0%, 100% { opacity: 1; }
+  47% { opacity: 0.994; }
+  48% { opacity: 0.978; }
+  49% { opacity: 0.995; }
+}
+.terminal-screen {
+  animation: crt-hum 7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-screen { animation: none; }
+}
+
+/*
+ * The block caret, in two forms.
+ *
+ * `.crt-block` is the prompt's cursor: it sits ON a character rather than
+ * after it, inverting that character the way a hardware terminal does —
+ * background on, glyph knocked out. That is why the prompt renders as three
+ * spans instead of one string; the middle one is whatever the cursor is
+ * standing on.
+ *
+ * `.crt-caret` is the trailing form, for when there is no character to stand
+ * on: the boot sequence, and the wait while an answer is coming back.
+ *
+ * Both step rather than fade. Phosphor decays in under a millisecond, so a
+ * cursor that eases in and out is a modern loading dot wearing a costume.
+ */
+@keyframes crt-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.crt-caret::after {
+  content: '';
+  display: inline-block;
+  width: 0.58em;
+  height: 1.02em;
+  margin-left: 0.06em;
+  vertical-align: -0.19em;
+  background: var(--crt-text);
+  box-shadow: 0 0 8px rgba(141, 255, 180, 0.7);
+  animation: crt-blink 1.05s steps(1, end) infinite;
+}
+
+.crt-block {
+  background: var(--crt-text);
+  color: var(--crt-bg);
+  box-shadow: 0 0 9px rgba(141, 255, 180, 0.6);
+  animation: crt-blink 1.05s steps(1, end) infinite;
+  /* Whitespace must still occupy a cell, or the cursor collapses at the end
+     of the line — which is exactly where it spends most of its time. */
+  white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-caret::after,
+  .crt-block { animation: none; }
+}

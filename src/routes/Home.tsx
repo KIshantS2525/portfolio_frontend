@@ -12,6 +12,7 @@ import { WhenVisible } from '@/components/core/WhenVisible';
 import { Reveal } from '@/components/core/Reveal';
 import { useProjects } from '@/lib/useContent';
 import { useProfile } from '@/lib/useContent';
+import { ArchiveDoor } from '@/components/archive/ArchiveDoor';
 
 /** Lazy for the same reason every three.js entry point on this site is: it never touches first paint. */
 const GraphJourney = lazy(() =>
@@ -106,6 +107,17 @@ export default function Home() {
         <Stack />
         <About />
         <Contact />
+
+        {/*
+          The door sits here, at the bottom, on purpose. Anyone who has read
+          this far is already invested, and the archive is a reward rather
+          than a fork in the road — putting it in the nav would ask every
+          arriving visitor to choose between two experiences before they have
+          seen either.
+        */}
+        <section className="shell pt-[96px]">
+          <ArchiveDoor />
+        </section>
       </main>
 
       <Footer />

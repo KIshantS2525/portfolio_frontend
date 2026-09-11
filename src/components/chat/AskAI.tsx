@@ -109,11 +109,27 @@ export function AskAI({ heading = true }: { heading?: boolean }) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
 
+        /*
+         * The answer, broadcast as it arrives.
+         *
+         * Deliberately a window event rather than a prop or a callback: this
+         * component is mounted on the homepage, in the studio, and on the
+         * counter of the locker room, and only one of those three cares what
+         * is being said. An optional `onStream` prop would have to be threaded
+         * through every call site to serve the one that does.
+         *
+         * Nothing listens by default, so everywhere else this is two extra
+         * statements that cost nothing and change no behaviour.
+         */
+        let acc = '';
+
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
           const piece = decoder.decode(value, { stream: true });
           if (!piece) continue;
+          acc += piece;
+          window.dispatchEvent(new CustomEvent('askai:stream', { detail: acc }));
           setMessages((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
@@ -121,6 +137,7 @@ export function AskAI({ heading = true }: { heading?: boolean }) {
             return next;
           });
         }
+        window.dispatchEvent(new CustomEvent('askai:done', { detail: acc }));
       } catch {
         setError('The connection dropped before the answer finished. Try asking again.');
         setMessages((prev) => prev.filter((m) => m.content !== '' || m.role === 'user'));

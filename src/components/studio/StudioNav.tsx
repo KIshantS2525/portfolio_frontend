@@ -89,6 +89,23 @@ export function StudioNav() {
                 top, which is exactly what the screenshot showed: the rope
                 existed, just trapped inside the nav bar's corner.
               */}
+              {/*
+                The archive lives in the bar rather than only at the foot of
+                the page. `onPointerEnter` fires the dynamic import a beat
+                before the click lands, so the chunk is usually already in
+                flight and the room opens instantly — hovering is a good
+                signal of intent and costs nothing if it turns out to be
+                wrong. The import is idempotent, so sweeping the cursor over
+                it fifty times still downloads it once.
+              */}
+              <Link
+                to="/archive"
+                onPointerEnter={() => void import('@/routes/Archive')}
+                onFocus={() => void import('@/routes/Archive')}
+                className="t-nav hidden text-ash transition-colors hover:text-bone sm:inline"
+              >
+                Archive
+              </Link>
               <a href="#ask" className="pill !px-[20px] !py-[11px]">
                 Ask AI
               </a>
