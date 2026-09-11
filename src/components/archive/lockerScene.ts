@@ -391,6 +391,55 @@ function paintSign(canvas: HTMLCanvasElement, name: string) {
   ctx.fillRect(0, h - 3, w, 3);
 }
 
+/**
+ * What is on the monitor before anyone touches it.
+ *
+ * The DOM terminal takes over the whole viewport once you click, so this is
+ * only ever seen from across the lobby — which is exactly why it matters. A
+ * dark rectangle on a desk is furniture; a rectangle with a prompt glowing on
+ * it is a machine that is already running and waiting for you, and that is
+ * the difference between walking past the counter and walking up to it.
+ *
+ * Deliberately illegible at its actual size: a few dim rows of plausible
+ * output and one bright prompt line. Trying to put real text here would be
+ * unreadable at two metres and wrong the moment the content changed.
+ */
+function paintScreen(canvas: HTMLCanvasElement, subject: string) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.fillStyle = '#06130b';
+  ctx.fillRect(0, 0, w, h);
+  // Phosphor pools toward the middle of a tube.
+  const g = ctx.createRadialGradient(w / 2, h / 2, 20, w / 2, h / 2, w * 0.72);
+  g.addColorStop(0, 'rgba(60,140,95,0.34)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.font = '600 21px ui-monospace, monospace';
+  ctx.textBaseline = 'top';
+  const rows = [
+    'ARCHIVE KIT ROOM — TERMINAL 2.6',
+    'MEMORY ............ 640K OK',
+    'LINK /api/chat .... ESTABLISHED',
+    '',
+    `READY. ASK ABOUT ${subject.toUpperCase()}.`,
+  ];
+  rows.forEach((line, i) => {
+    ctx.fillStyle = i === rows.length - 1 ? '#9dffbe' : 'rgba(95,224,141,0.5)';
+    ctx.fillText(line, 26, 28 + i * 30);
+  });
+  ctx.fillStyle = '#c9ffd9';
+  ctx.fillRect(26, 28 + rows.length * 30 + 4, 13, 22);
+
+  // Scanlines, over everything.
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  for (let y = 0; y < h; y += 3) ctx.fillRect(0, y, w, 1);
+}
+
 /** A box, positioned. Merged later, so this is only ever a builder. */
 function box(w: number, h: number, d: number, x: number, y: number, z: number) {
   const g = new THREE.BoxGeometry(w, h, d);
@@ -1052,31 +1101,136 @@ export function buildRoom({
 
   // Terminal: a screen on a wedge, tilted back. Dark for now — gate 2 puts
   // the conversation on it.
-  /*
-   * The screen. Self-lit even when idle, brighter when you are using it.
+  /* ── the monitor ──────────────────────────────────────────────────────
+   * A CRT, not a panel.
    *
-   * An unlit black rectangle on a counter is a slab; nobody clicks a slab.
-   * The faint standing glow is the affordance — it is the only object in the
-   * room besides the hatch lamp that emits, so the eye finds it, and it says
-   * the machine is on and waiting before anything has been explained.
+   * This was a 2cm slab tilted back on a wedge — which is a flat-screen, and a
+   * flat screen in a room with a roller shutter and a pull cord is an
+   * anachronism the eye catches before it catches anything else. The whole
+   * terminal reads as a period machine on the inside; the outside has to
+   * agree.
+   *
+   * What makes a tube read as a tube is the depth behind it and the curve on
+   * the front, in that order. The case tapers from a 44cm bezel to a 24cm
+   * rear over 34cm — built as a four-sided CylinderGeometry, which is a square
+   * frustum, and far cheaper than lofting one by hand. The glass is a patch of
+   * a sphere with an 80cm radius: at this size that is an 18mm bulge, which is
+   * almost nothing measured and unmistakable seen, because straight highlights
+   * bend across it.
    */
-  const screenMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#0d1219'),
-    emissive: new THREE.Color('#4d8f74'),
-    emissiveIntensity: 0.25,
-    roughness: 0.28,
-    metalness: 0.2,
+  const MON_X = -0.44;
+  const MON_Z = hatchZ + 0.26;
+  const caseMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#cfc4a8'), // yellowed beige, as they all went
+    roughness: 0.72,
+    metalness: 0.04,
   });
-  const screen = new THREE.Mesh(box(0.46, 0.3, 0.02, 0, 0, 0), screenMat);
-  screen.position.set(-0.42, HATCH_SILL + 0.19, hatchZ + 0.12);
-  screen.rotation.x = -0.22;
-  scene.add(screen);
+
+  // Rear shell: square frustum, narrow end away from the viewer.
+  const shell = new THREE.CylinderGeometry(0.17, 0.31, 0.34, 4, 1, false);
+  shell.rotateY(Math.PI / 4); // square faces square to the axes
+  shell.rotateX(-Math.PI / 2); // stand the axis along z, narrow end at -z
+  shell.translate(MON_X, HATCH_SILL + 0.24, MON_Z - 0.2);
+  scene.add(new THREE.Mesh(shell, caseMat));
+
+  /*
+   * The bezel is a frame, not a slab.
+   *
+   * The first version was one solid box with the glass stuck on its front
+   * face, five millimetres proud. That reads as a screen glued to a beige
+   * brick: there is no aperture, so there is nothing for the tube to sit
+   * behind and the surround has no thickness. Four pieces around an opening
+   * cost three extra boxes and give the one thing a CRT front is made of — a
+   * deep rim you look *into*, with the glass set back inside it and its own
+   * curve catching the light at a different angle from the plastic.
+   *
+   * It also removes a z-fighting risk: coplanar-ish glass and bezel at 5mm
+   * apart shimmer at glancing angles, and a glancing angle is how this is
+   * seen for most of the walk.
+   */
+  const APERTURE_W = 0.35;
+  const APERTURE_H = 0.27;
+  const RIM_X = (0.46 - APERTURE_W) / 2;
+  const RIM_Y = (0.4 - APERTURE_H) / 2;
+  const bezel: THREE.BufferGeometry[] = [];
+  const eyeY = HATCH_SILL + 0.24;
+  bezel.push(box(0.46, RIM_Y, 0.075, MON_X, eyeY + (APERTURE_H + RIM_Y) / 2, MON_Z));
+  bezel.push(box(0.46, RIM_Y, 0.075, MON_X, eyeY - (APERTURE_H + RIM_Y) / 2, MON_Z));
+  bezel.push(box(RIM_X, APERTURE_H, 0.075, MON_X - (APERTURE_W + RIM_X) / 2, eyeY, MON_Z));
+  bezel.push(box(RIM_X, APERTURE_H, 0.075, MON_X + (APERTURE_W + RIM_X) / 2, eyeY, MON_Z));
+  bezel.push(box(0.3, 0.04, 0.24, MON_X, HATCH_SILL + 0.02, MON_Z - 0.04)); // foot
+  bezel.push(box(0.34, 0.03, 0.2, MON_X, HATCH_SILL + 0.045, MON_Z - 0.04)); // tilt collar
+  // Vents across the top.
+  for (let i = 0; i < 7; i++) {
+    bezel.push(box(0.3, 0.012, 0.014, MON_X, HATCH_SILL + 0.437, MON_Z - 0.06 - i * 0.03));
+  }
+  scene.add(new THREE.Mesh(mergeGeometries(bezel, false)!, caseMat));
+
+  // Two knobs and a badge on the lower bezel — the details that date it.
+  const knobMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#3a3a38'), roughness: 0.5, metalness: 0.3,
+  });
+  for (const kx of [-0.14, -0.09]) {
+    const k = new THREE.CylinderGeometry(0.013, 0.013, 0.016, 12);
+    k.rotateX(Math.PI / 2);
+    k.translate(MON_X + kx, HATCH_SILL + 0.075, MON_Z + 0.042);
+    scene.add(new THREE.Mesh(k, knobMat));
+  }
+  scene.add(new THREE.Mesh(box(0.075, 0.016, 0.008, MON_X + 0.13, HATCH_SILL + 0.075, MON_Z + 0.04), knobMat));
+  // Power lamp.
   scene.add(
     new THREE.Mesh(
-      box(0.3, 0.03, 0.2, -0.42, HATCH_SILL + 0.05, hatchZ + 0.16),
-      trimMat,
+      box(0.012, 0.008, 0.006, MON_X + 0.185, HATCH_SILL + 0.075, MON_Z + 0.04),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color('#68ff9d') }),
     ),
   );
+
+  /*
+   * The glass. A patch of a large sphere rather than a plane.
+   *
+   * SphereGeometry maps UV 0..1 across whatever angular slice you ask for, so
+   * the screen texture lands on it undistorted without any UV work — the one
+   * reason this is a sphere patch and not a lathed or displaced grid.
+   */
+  const GLASS_R = 0.8;
+  const phiLen = 2 * Math.asin(0.17 / GLASS_R);
+  const thetaLen = 2 * Math.asin(0.132 / GLASS_R);
+  const glass = new THREE.SphereGeometry(
+    GLASS_R, 26, 18,
+    Math.PI / 2 - phiLen / 2, phiLen,
+    Math.PI / 2 - thetaLen / 2, thetaLen,
+  );
+  glass.translate(0, 0, -GLASS_R); // bring the patch to the origin, bulging +z
+  // Set back inside the aperture: the crown of the bulge stops a few
+  // millimetres short of the bezel's front face, so the rim always reads as
+  // in front of the tube.
+  glass.translate(MON_X, eyeY, MON_Z + 0.026);
+
+  // A dark liner behind the glass, closing the aperture. Without it the
+  // recess is a hole onto whatever is behind the monitor.
+  scene.add(
+    new THREE.Mesh(
+      box(APERTURE_W, APERTURE_H, 0.02, MON_X, eyeY, MON_Z - 0.03),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color('#0a120d'), roughness: 1 }),
+    ),
+  );
+
+  const screenCanvas = document.createElement('canvas');
+  screenCanvas.width = 512;
+  screenCanvas.height = 400;
+  paintScreen(screenCanvas, title.split(' ')[0]);
+  const screenTex = new THREE.CanvasTexture(screenCanvas);
+  screenTex.colorSpace = THREE.SRGBColorSpace;
+  screenTex.anisotropy = anisotropy;
+  const screenMat = new THREE.MeshStandardMaterial({
+    map: screenTex,
+    emissive: new THREE.Color(0xffffff),
+    emissiveMap: screenTex,
+    emissiveIntensity: 0.7,
+    roughness: 0.12, //  glass, so it catches the hatch lamp as a hard smear
+    metalness: 0,
+  });
+  scene.add(new THREE.Mesh(glass, screenMat));
 
   const hatchAnchor = new THREE.Vector3(0, HATCH_SILL + HATCH_H / 2, hatchZ + 0.2);
   /*
@@ -1090,8 +1244,8 @@ export function buildRoom({
    * consider "the computer".
    */
   const termBox = new THREE.Box3(
-    new THREE.Vector3(-0.74, HATCH_SILL - 0.02, hatchZ - 0.04),
-    new THREE.Vector3(-0.1, HATCH_SILL + 0.42, hatchZ + 0.3),
+    new THREE.Vector3(MON_X - 0.3, HATCH_SILL - 0.02, hatchZ - 0.12),
+    new THREE.Vector3(MON_X + 0.3, HATCH_SILL + 0.5, hatchZ + 0.44),
   );
 
   // The light in there. Static, unlike the corridor rig, and it barely dips
@@ -1452,7 +1606,7 @@ export function buildRoom({
 
     curTurn += (targetTurn - curTurn) * k;
     curTerm += (targetTerm - curTerm) * k;
-    screenMat.emissiveIntensity = 0.25 + 0.75 * curTerm;
+    screenMat.emissiveIntensity = 0.7 + 0.5 * curTerm;
 
     /*
      * Facing, as a blend between "down the corridor" and "at the board".
@@ -1658,6 +1812,8 @@ export function buildRoom({
       }
       paintSign(signCanvas, title);
       signTex.needsUpdate = true;
+      paintScreen(screenCanvas, title.split(' ')[0]);
+      screenTex.needsUpdate = true;
     });
   }
 

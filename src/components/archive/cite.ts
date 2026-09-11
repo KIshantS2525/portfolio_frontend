@@ -1,5 +1,13 @@
 // src/components/archive/cite.ts
-import type { Chart } from '@/components/archive/wallchart';
+/**
+ * The least a node has to be for an answer to be able to cite it.
+ *
+ * Deliberately not `ChartNode` or `GraphNode`. This matcher is used by the
+ * locker room's wall chart and by the homepage constellation, which are two
+ * different types over the same underlying graph, and coupling it to either
+ * would mean the other had to convert. Three fields is all it reads.
+ */
+export type Citable = { id: string; label: string; ref?: string };
 
 /**
  * Which parts of the graph an answer actually talked about.
@@ -46,11 +54,11 @@ export type Matcher = (text: string) => Set<string>;
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function buildMatcher(chart: Chart): Matcher {
+export function buildMatcher(nodes: Citable[]): Matcher {
   const probes: { id: string; re: RegExp }[] = [];
   const seen = new Set<string>();
 
-  for (const n of chart.nodes) {
+  for (const n of nodes) {
     // The visible label, and the slug, which catches "asc-cadence" written as
     // one word in a URL or a filename.
     const needles = [n.label, n.ref].filter(

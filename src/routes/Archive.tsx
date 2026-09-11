@@ -364,7 +364,7 @@ export default function Archive() {
    * move once per new name rather than forty times per answer.
    */
   useEffect(() => {
-    const match = buildMatcher(chart);
+    const match = buildMatcher(chart.nodes);
     let last = new Set<string>();
 
     const onStream = (e: Event) => {

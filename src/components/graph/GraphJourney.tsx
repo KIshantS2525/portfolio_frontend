@@ -19,6 +19,7 @@ import {
 import { useVisible } from '@/components/core/WhenVisible';
 import { GraphReadout } from '@/components/graph/GraphReadout';
 import { AskAI } from '@/components/chat/AskAI';
+import { buildMatcher, sameSet } from '@/components/archive/cite';
 import { BorderGlow } from '@/components/studio/BorderGlow';
 import { Compare } from '@/components/studio/Compare';
 import { SplitFlap } from '@/components/studio/SplitFlap';
@@ -956,6 +957,8 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
 
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  /** Nodes the current Ask AI answer named. Empty until one does. */
+  const [cited, setCited] = useState<Set<string>>(new Set());
   const outerRef = useRef<HTMLElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const askBlockRef = useRef<HTMLDivElement>(null);
@@ -990,18 +993,61 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     if (node) prefillAsk(`Tell me about ${node.label}`);
   };
 
+  /*
+   * The graph listens to the answer.
+   *
+   * The chat and the constellation have sat beside each other on this screen
+   * since the first version and never spoken. They should: the answer names
+   * projects and tools that are *already nodes with ids*, so lighting the ones
+   * it drew on turns the graph into the citation. Nothing has to be trusted —
+   * if a node lights up, its name is in the paragraph you are reading.
+   *
+   * Matching is on the answer's own words rather than on anything the model
+   * is asked to emit. A model told to append machine-readable references gets
+   * them wrong some of the time: it invents an id, cites something it never
+   * mentioned, or forgets under a long answer. Every one of those lights the
+   * wrong node, which is worse than lighting none, and it would put the
+   * feature at the mercy of a prompt surviving model upgrades. See cite.ts.
+   */
+  useEffect(() => {
+    const match = buildMatcher(graph.nodes);
+    let last = new Set<string>();
+    const onStream = (e: Event) => {
+      const ids = match((e as CustomEvent<string>).detail ?? '');
+      if (sameSet(ids, last)) return;
+      last = ids;
+      setCited(ids);
+    };
+    window.addEventListener('askai:stream', onStream);
+    return () => window.removeEventListener('askai:stream', onStream);
+  }, [graph]);
+
   /**
-   * "Blast radius" — the active node plus its direct neighbours. When
-   * anything is active every other node gets dimmed and every node in this
-   * set stays lit. Hover wins over selection if both are present.
+   * "Blast radius" — what stays lit while everything else dims.
+   *
+   * Three sources feed it, in strict priority: a pointer on a node, a
+   * selected node, and the nodes an answer cited. Pointer and selection light
+   * a node plus its direct neighbours, because the question those answer is
+   * "what is this connected to". A citation lights exactly what was named and
+   * nothing else — adding neighbours there would light nodes the answer never
+   * mentioned, and the whole value of this is that everything lit is
+   * verifiable by reading the text.
+   *
+   * Hover and selection outrank citation rather than merging with it. Once
+   * the visitor starts pointing at things, the graph is answering them, not
+   * the chat.
    */
   const activeId = hovered ?? selected?.id ?? null;
   const highlightIds = useMemo(() => {
-    if (!activeId) return null;
-    const set = new Set<string>([activeId]);
-    graph.adjacency.get(activeId)?.forEach((id) => set.add(id));
-    return set;
-  }, [activeId, graph]);
+    if (activeId) {
+      const set = new Set<string>([activeId]);
+      graph.adjacency.get(activeId)?.forEach((id) => set.add(id));
+      return set;
+    }
+    return cited.size ? cited : null;
+  }, [activeId, cited, graph]);
+  /** True when the lit set came from an answer, which scales them differently. */
+  const citing = !activeId && cited.size > 0;
 
   /** Every keyframe's point cloud, indexed by node position — computed once per node set. */
   const shapes = useMemo<Record<Key, Vec3[]>>(() => {
@@ -1459,7 +1505,13 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
 
             if (highlightIds) {
               if (highlightIds.has(n.id)) {
-                scaleMul *= n.id === activeId ? 1.55 : 1.25;
+                /*
+                 * A cited node is the subject, not a neighbour of one, so it
+                 * gets nearly the boost the hovered node gets. Using the
+                 * neighbour scale would make an answer's citations look like
+                 * incidental context.
+                 */
+                scaleMul *= n.id === activeId ? 1.55 : citing ? 1.5 : 1.25;
               } else if (!isPerson) {
                 opacityMul *= 0.18;
                 scaleMul *= 0.85;
@@ -1715,6 +1767,26 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
                 <AskAI />
               </div>
             </BorderGlow>
+
+            {/*
+              One line, and only while an answer has cited something.
+
+              The graph lighting up beside the card is easy to miss if you are
+              reading — the movement is in peripheral vision and the eye is
+              busy. This says what just happened once, in the smallest voice
+              available, and disappears with the next question. Without it the
+              feature is invisible to the people it was built for; with a
+              permanent caption it would be an instruction for a thing that
+              has not happened yet.
+            */}
+            <p
+              aria-live="polite"
+              className="t-caption mt-[14px] text-center text-ash transition-opacity duration-500"
+              style={{ opacity: citing ? 1 : 0 }}
+            >
+              {cited.size} node{cited.size === 1 ? '' : 's'} lit in the graph — everything
+              this answer drew on.
+            </p>
           </div>
         </div>
 
