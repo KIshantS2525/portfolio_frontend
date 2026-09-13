@@ -1658,8 +1658,20 @@ export function buildRoom({
     const posZ = curZ + (lobbyMid - curZ) * e;
     camera.position.set(leanX, posY, posZ);
 
-    const yaw = curLookX * LOOK_YAW_MAX;
-    const pitch = curLookY * LOOK_PITCH_MAX;
+    /*
+     * Nothing exists to either side of the entrance — the corridor's side
+     * walls start at the doorway, not out here — so full look-around has to
+     * wait until you've actually stepped through it. Without this, turning
+     * your head while still outside the doorway (see the TUNE ME block above)
+     * swings the view into that empty approach and shows flat, unlit fog
+     * instead of a wall, which is exactly the "looking past what's been
+     * built" bug this guards against. Ramps linearly from no look-around at
+     * the starting position to the full range by the time you reach the
+     * doorway, and reverses the same way if you scroll back out.
+     */
+    const enterRamp = Math.max(0, Math.min(1, (startZ - curZ) / (startZ - ENTRY_Z)));
+    const yaw = curLookX * LOOK_YAW_MAX * enterRamp;
+    const pitch = curLookY * LOOK_PITCH_MAX * enterRamp;
     const ax = leanX + Math.sin(yaw) * LOOK_AHEAD;
     const ay = EYE + curLookY * 0.34 + Math.sin(pitch) * LOOK_AHEAD * 0.5;
     const az = posZ - Math.cos(yaw) * LOOK_AHEAD;
