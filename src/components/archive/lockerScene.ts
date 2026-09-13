@@ -4,7 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import {
   CHART_H, CHART_W, hitChart, paintChart,
   type Chart, type ChartNode,
-} from '@/components/archive/wallchart';
+} from '@/components/archive/wallChart';
 
 /**
  * The locker room.
@@ -85,6 +85,39 @@ const SWING = 1.85;
 const LAMP_PITCH = PITCH * 4;
 /** Where the doorway header sits. The camera starts outside it and walks in. */
 const ENTRY_Z = 0.75;
+
+/**
+ * ============================================================================
+ *  TUNE ME — Looking around (turning your head left/right)
+ * ============================================================================
+ * The pointer used to only nudge the view a few degrees either way — a
+ * parallax wobble, not a look. That meant the lockers lining the corridor and
+ * the knowledge-graph chart on the lobby wall (directly across from the
+ * notice board) were basically never in frame; the camera only ever turned to
+ * face the notice board, on a script, at the very end of the walk.
+ *
+ * The look is now a real yaw/pitch turn around wherever you're currently
+ * standing, driven by pointer position across the whole canvas (left edge =
+ * turn fully left, right edge = turn fully right). Walking (scroll) and
+ * looking (pointer) are independent, exactly like a game: scroll to move
+ * down the corridor, move the pointer to turn your head and look at whatever
+ * is on either side of you as you go — including swinging round in the lobby
+ * to see the chart on your right and the notice board on your left.
+ *
+ *   • LOOK_YAW_MAX   — how far you can turn left/right, in radians. Bigger
+ *     = more of a turn. ~1.22 (≈70°) comfortably brings a side wall into
+ *     frame from the middle of the corridor. Push it toward ~1.5 (≈86°) for
+ *     an almost-over-the-shoulder look; pull it toward ~0.5 (≈29°) to go
+ *     back to something closer to the old subtle parallax.
+ *   • LOOK_PITCH_MAX — how far you can tilt up/down, in radians. Kept modest
+ *     on purpose — this is a corridor, not a flight sim.
+ *   • LOOK_AHEAD     — how far away (in metres) the look-at point is placed.
+ *     Mostly affects how quickly turning feels like it "catches" a nearby
+ *     wall; the defaults were tuned against this room's ~2.56m-wide corridor.
+ */
+const LOOK_YAW_MAX = 1.22;
+const LOOK_PITCH_MAX = 0.22;
+const LOOK_AHEAD = 4;
 /** The serving hatch at the far end: counter height, opening size. */
 const HATCH_SILL = 0.96;
 const HATCH_W = 1.72;
@@ -1609,26 +1642,27 @@ export function buildRoom({
     screenMat.emissiveIntensity = 0.7 + 0.5 * curTerm;
 
     /*
-     * Facing, as a blend between "down the corridor" and "at the board".
-     *
-     * Interpolating the look-at *point* rather than an angle: with the target
-     * four metres ahead and the board two metres to the side, the swing this
-     * produces is smooth and slightly eased-out at the end, which is how a
-     * head actually turns. Rotating by angle instead would need the pivot
-     * handled separately and buys nothing at this scale.
+     * Facing, as a blend between "wherever you're looking" and "at the
+     * board" — the scripted turn that plays out over the last stretch of the
+     * walk still wins at the end (see `e` below), but everywhere else the
+     * look direction is a genuine yaw/pitch turn around the camera's current
+     * position, driven by the pointer. See the TUNE ME block near the top of
+     * this file for the three numbers that shape it.
      *
      * The camera also steps away from the board as it turns — you cannot read
      * something you are standing against — and settles level with it.
      */
     const e = curTurn * curTurn * (3 - 2 * curTurn);
-    const ax = curLookX * 0.62;
-    const ay = EYE + curLookY * 0.34;
-    const az = curZ - 4;
-    camera.position.set(
-      curLookX * 0.2 + (0.42 - curLookX * 0.2) * e,
-      EYE + curLookY * 0.08,
-      curZ + (lobbyMid - curZ) * e,
-    );
+    const leanX = curLookX * 0.2 + (0.42 - curLookX * 0.2) * e;
+    const posY = EYE + curLookY * 0.08;
+    const posZ = curZ + (lobbyMid - curZ) * e;
+    camera.position.set(leanX, posY, posZ);
+
+    const yaw = curLookX * LOOK_YAW_MAX;
+    const pitch = curLookY * LOOK_PITCH_MAX;
+    const ax = leanX + Math.sin(yaw) * LOOK_AHEAD;
+    const ay = EYE + curLookY * 0.34 + Math.sin(pitch) * LOOK_AHEAD * 0.5;
+    const az = posZ - Math.cos(yaw) * LOOK_AHEAD;
     const lx = ax + (boardAnchor.x - ax) * e;
     const ly = ay + (boardAnchor.y - ay) * e;
     const lz = az + (boardAnchor.z - az) * e;

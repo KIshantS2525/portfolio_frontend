@@ -10,7 +10,7 @@ import { TerminalBoot } from '@/components/archive/TerminalBoot';
 import { TerminalChat } from '@/components/archive/TerminalChat';
 import { boardRows, type ContactRow } from '@/components/archive/NoticeBoard';
 import '@/components/archive/archive.css';
-import { buildChart } from '@/components/archive/wallchart';
+import { buildChart } from '@/components/archive/wallChart';
 import { buildMatcher, sameSet } from '@/components/archive/cite';
 import { buildGraph } from '@/lib/graph';
 import {
@@ -424,7 +424,7 @@ export default function Archive() {
             ? 'Scroll to enter'
             : title.facing > 0.55
               ? 'Pick a note to get in touch'
-              : 'Scroll to walk · open a locker · use the terminal at the counter'}
+              : 'Scroll to walk · move to look around · open a locker · use the terminal at the counter'}
         </p>
       )}
 
