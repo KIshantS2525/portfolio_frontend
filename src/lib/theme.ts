@@ -283,17 +283,28 @@ const light: Palette = {
     role: '#b8431a', //        #F26734 deepened — few, hot, conspicuous.
     project: '#3a5f9e', //     The sky opposite the sun, still holding its blue.
     achievement: '#a8811a', // #FFF285 deepened until it survives paper.
-    domain: '#7d5296', //      The violet where the high cloud has lost the light.
-    tech: '#8f8172', //        Warm haze — the swarm, and the quietest.
-    link: '#c3b49a',
+    /*
+     * domain, tech and link were each pulled down toward the paper until they
+     * lost their colour rather than just their weight — a violet gone grey-
+     * mauve, a tech swarm gone the colour of cardboard, a link line barely a
+     * shade off the canvas. Next to the saturated warm trio above that read as
+     * muddy rather than quiet. These keep the same role and the same relative
+     * darkness but hold onto enough saturation to still be a colour.
+     */
+    domain: '#8a4fa8', //      The violet where the high cloud has lost the light.
+    tech: '#a9793f', //        Warm haze — the swarm, and the quietest, not grey.
+    link: '#b99a68',
     /*
      * Decorative only, and pale on purpose — these drift across the whole page
      * behind the text, so anything with real weight reads as a smudge on the
      * canvas rather than as a distant mote. All five sit between 1.4:1 and
      * 1.9:1 against the canvas, which is the band where a particle is
-     * perceptible without ever competing with a word.
+     * perceptible without ever competing with a word. Evened toward a single
+     * near-identical peach they read as a flat wash rather than a sky — spaced
+     * around the same reference photograph instead, they keep that low
+     * presence while still looking like distinct points of light.
      */
-    ambient: ['#e5a97f', '#e8bd7e', '#e3ab97', '#e7b899', '#ded39a'],
+    ambient: ['#e8a15b', '#e0b3e0', '#f0c56a', '#e39a8c', '#c9c2e8'],
     /*
      * Dust, and emphatically not the ambient set. A background mote wants to
      * be barely there; a particle holding up a chess piece cannot be, or the

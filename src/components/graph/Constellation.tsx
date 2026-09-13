@@ -634,8 +634,24 @@ export function Constellation({
     else fg.pauseAnimation?.();
   }, [visible, size.w]);
 
-  /* Camera. The sphere has a known radius, so this is arithmetic rather than a
-     guess — no zoomToFit hunting around while the layout is still expanding. */
+  /*
+   * Camera. The sphere has a known radius, so this is arithmetic rather than a
+   * guess — no zoomToFit hunting around while the layout is still expanding.
+   *
+   * A sphere centred on the look-at target always outlines as a circle, at
+   * any camera position — but the *cloud inside* it only reads as one round
+   * body if the near and far hemispheres come out roughly the same size. At
+   * `fit`'s original distance, camera-to-centre was under 2x OUTER, so the
+   * near hemisphere sat noticeably closer to the lens than the far one and
+   * rendered on the order of 2-3x larger — a wide-angle close-up. Everything
+   * on the far side shrank toward the centre, and the near side dominated the
+   * frame, so the whole thing read as a dome facing the camera rather than a
+   * ball. The fix is a dolly-zoom: push the camera back and narrow the field
+   * of view by the same ratio. That keeps the sphere's on-screen size exactly
+   * where it was, because a longer lens at a longer distance frames the same
+   * angle, while it flattens the near/far size gap enough that the far
+   * hemisphere stops looking shrunken.
+   */
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg || !size.w) return;
@@ -646,12 +662,29 @@ export function Constellation({
       controls.enableDamping = true;
       controls.dampingFactor = 0.12;
       controls.minDistance = OUTER * 1.15;
-      controls.maxDistance = OUTER * 6;
+      controls.maxDistance = OUTER * 9;
     }
 
     const aspect = size.w / Math.max(1, size.h);
     const fit = (OUTER * (dense ? 2.95 : 3.5)) / Math.min(1.25, Math.max(0.72, aspect)) / zoom;
-    fg.cameraPosition({ x: fit * 0.26, y: fit * 0.16, z: fit }, { x: 0, y: 0, z: 0 }, 0);
+
+    const TARGET_FOV = 22; // degrees — a mild telephoto; low enough to read as round, not flat.
+    const camera = fg.camera?.() as (THREE.PerspectiveCamera & { userData: Record<string, unknown> }) | undefined;
+    if (camera) {
+      // Recorded once, off the camera's own starting fov, so this stays correct
+      // whatever the renderer's default turns out to be and never compounds on
+      // a later re-run of this effect (resize, zoom prop change, ...).
+      const baseFov = (camera.userData.baseFov as number | undefined) ?? camera.fov;
+      camera.userData.baseFov = baseFov;
+      const distanceScale =
+        Math.tan((baseFov * Math.PI) / 360) / Math.tan((TARGET_FOV * Math.PI) / 360);
+      camera.fov = TARGET_FOV;
+      camera.updateProjectionMatrix();
+      const dist = fit * distanceScale;
+      fg.cameraPosition({ x: dist * 0.26, y: dist * 0.16, z: dist }, { x: 0, y: 0, z: 0 }, 0);
+    } else {
+      fg.cameraPosition({ x: fit * 0.26, y: fit * 0.16, z: fit }, { x: 0, y: 0, z: 0 }, 0);
+    }
   }, [size.w, size.h, dense, zoom]);
 
   /* ── interaction ────────────────────────────────────────────────────── */

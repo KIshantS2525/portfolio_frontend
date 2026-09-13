@@ -469,6 +469,20 @@
    */
   .glass-card {
     --glass-tint: var(--glass-tint-base);
+    /*
+     * Every heading utility (t-heading-lg, t-heading-sm, ...) sizes itself
+     * with `vw` — a fraction of the *whole viewport*. That's correct for a
+     * heading that spans the page, and wrong the moment the same class ends
+     * up inside a fixed-width card sitting in a sidebar or a grid column:
+     * the text sizes itself as if it had the whole screen to work with, not
+     * the ~500px box it's actually in, and wraps or overflows depending on
+     * how the rest of the page happens to be laid out that day. `container-
+     * type` turns this box into its own measuring stick — see the `cqi`
+     * overrides below — so a heading in here reads the *card's* width, not
+     * the window's, and reflows correctly whether the card sits at 320px on
+     * a phone or 720px on a wide sidebar.
+     */
+    container-type: inline-size;
     position: relative;
     isolation: isolate;
     background: color-mix(
@@ -486,6 +500,25 @@
       );
     box-shadow: var(--glass-shadow);
     overflow: hidden;
+  }
+  /*
+   * Card-scoped type. Same utility classes, same call sites — only the unit
+   * feeding the clamp changes, from `vw` (viewport-relative) to `cqi`
+   * (container-relative), so nothing elsewhere on the page that also uses
+   * `t-heading-lg` or `t-heading-sm` outside a card is affected.
+   *
+   * The numbers are picked to land close to the old vw-based size at this
+   * card system's *typical* width (~500–560px, e.g. the Ask AI card) while
+   * actually tracking the card's real size instead of guessing at it — a
+   * narrower card (a phone, a tighter grid column) gets proportionally
+   * smaller type instead of the same oversized heading wrapping onto an
+   * extra line.
+   */
+  .glass-card .t-heading-lg {
+    font-size: clamp(28px, 9cqi, 64px);
+  }
+  .glass-card .t-heading-sm {
+    font-size: clamp(20px, 6cqi, 34px);
   }
   /*
    * The sheen: a soft diagonal highlight across the top, the way light catches

@@ -90,6 +90,10 @@ export function AskAI({ heading = true }: { heading?: boolean }) {
       setError(null);
       setInput('');
       stickRef.current = true;
+      // Tells the graph a new question is underway, so it drops whatever the
+      // previous answer had lit rather than leaving it glowing through this
+      // one's thinking time. See the matching listener in GraphJourney.
+      window.dispatchEvent(new CustomEvent('askai:start'));
 
       const history: Msg[] = [...messages, { role: 'user', content: q }];
       setMessages([...history, { role: 'assistant', content: '' }]);
@@ -156,6 +160,7 @@ export function AskAI({ heading = true }: { heading?: boolean }) {
     setInput('');
     setError(null);
     stickRef.current = true;
+    window.dispatchEvent(new CustomEvent('askai:start')); // drop the graph highlight too
   }, []);
 
   /** Toggles the mic. Dictation replaces whatever's currently typed, like every other voice-to-text field. */

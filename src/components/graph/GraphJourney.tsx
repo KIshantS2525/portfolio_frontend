@@ -19,7 +19,7 @@ import {
 import { useVisible } from '@/components/core/WhenVisible';
 import { GraphReadout } from '@/components/graph/GraphReadout';
 import { AskAI } from '@/components/chat/AskAI';
-import { buildMatcher, sameSet } from '@/components/archive/cite';
+import { buildMatcher } from '@/components/archive/cite';
 import { BorderGlow } from '@/components/studio/BorderGlow';
 import { Compare } from '@/components/studio/Compare';
 import { SplitFlap } from '@/components/studio/SplitFlap';
@@ -29,6 +29,69 @@ import { prefillAsk } from '@/lib/ask';
 import { metrics } from '@/lib/content';
 import type { Project } from '@/lib/content';
 import { useAchievements, useProfile, useRoles } from '@/lib/useContent';
+
+/**
+ * ============================================================================
+ *  TUNE ME — "Ask about me" section, knowledge-graph size
+ * ============================================================================
+ * How big the sphere (and the moon/sun node at its centre) renders next to
+ * the Ask AI card, as a percentage of the size it originally shipped at.
+ *
+ *   • Bigger graph  → INCREASE this number  (e.g. 150 = 50% bigger).
+ *   • Smaller graph → DECREASE this number  (e.g. 70 = 30% smaller).
+ *   • 100 = the original framing, before this was made adjustable.
+ *
+ * Under the hood this moves the camera closer or further away (see `ZOOM.
+ * heroLeft` below, which is derived from this number), so the graph stays
+ * perfectly round and in focus at any value — no other number needs to
+ * change. Sensible range is roughly 60–170: much bigger and the sphere starts
+ * cropping against the card/edge of the screen, much smaller and it shrinks
+ * to a speck. The transition in and out of this size (from Hero, into
+ * Metrics) is already eased over the scroll, so changing this number alone
+ * keeps that transition smooth — nothing else needs adjusting for that.
+ */
+const ASK_AI_GRAPH_SIZE_PERCENT = 140;
+
+/**
+ * How long, in milliseconds, the "cited nodes" highlight takes to fade in
+ * once an Ask AI answer finishes. Snapping it on instantly is what read as
+ * buggy — a handful of dots suddenly jumping in size and brightness the
+ * instant the last token arrives. Raise this for a slower, more deliberate
+ * reveal; lower it (or set to 0) to go back to an instant switch.
+ */
+const CITE_FADE_MS = 900;
+
+/**
+ * ============================================================================
+ *  TUNE ME — Graph size, laptop vs. monitor
+ * ============================================================================
+ * The entire scroll sequence (sphere, scatter, mind, knight — every keyframe)
+ * used to render at a fixed number of *pixels* no matter how tall or short
+ * the actual browser window was: a 900px-tall laptop window and a 1440px-tall
+ * external-monitor window got the identical-size sculpture, because the old
+ * framing math held world-units-per-pixel constant on purpose (see the
+ * WORLD_ACROSS comment below for why that was once the right call). The
+ * side effect is that the same graph reads as generously sized on a small
+ * laptop and looks small and adrift in the middle of a big monitor, since it
+ * never claims any more of the extra screen it's been given.
+ *
+ * This section makes it genuinely responsive instead: the graph's on-screen
+ * size now scales with the visitor's actual window height, bounded so it
+ * never gets silly at either end.
+ *
+ *   • VIEWPORT_REFERENCE_HEIGHT — the window height (in CSS px) the sequence
+ *     was originally tuned at. At exactly this height, nothing changes from
+ *     before.
+ *   • SCREEN_SCALE_RANGE — how far the graph is allowed to grow (second
+ *     number) on tall monitor windows, or shrink (first number) on short
+ *     laptop windows, as a multiplier on its reference size.
+ *       - Want a BIGGER graph on big monitors  → RAISE the second number.
+ *       - Want a SMALLER graph on small laptops → LOWER the first number.
+ *       - Set both to 1 to turn this off and go back to the old fixed-pixel
+ *         behaviour.
+ */
+const VIEWPORT_REFERENCE_HEIGHT = 900;
+const SCREEN_SCALE_RANGE: [number, number] = [0.82, 1.3];
 
 /**
  * The whole opening act, one graph.
@@ -368,7 +431,10 @@ const ZOOM: Partial<Record<Key, number>> = {
    * The dock does the placing, so unlike before it comes closer *and* stays
    * hard left of the card instead of drifting back to the middle.
    */
-  heroLeft: 0.55,
+  // Derived from ASK_AI_GRAPH_SIZE_PERCENT at the top of the file — that's
+  // the number to change, not this one. 0.55 was the original 100% baseline;
+  // a smaller value here means a closer camera, which is a bigger sphere.
+  heroLeft: 0.55 * (100 / ASK_AI_GRAPH_SIZE_PERCENT),
   /*
    * The knight, with air around it.
    *
@@ -504,6 +570,8 @@ YAW_DELTA[7] = 0.75;
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const easeInOut = (t: number) => t * t * (3 - 2 * t);
+/** Fast start, slow finish — used for the citation highlight's fade-in. */
+const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
 
 /**
  * Every shape function returns positions in node-index order. But one node
@@ -959,6 +1027,13 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
   const [hovered, setHovered] = useState<string | null>(null);
   /** Nodes the current Ask AI answer named. Empty until one does. */
   const [cited, setCited] = useState<Set<string>>(new Set());
+  /**
+   * When the current citation set started fading in, or null while nothing is
+   * fading. Read inside the rAF loop to ease the highlight in over
+   * CITE_FADE_MS rather than snapping it on the frame the answer finishes —
+   * see the "answer finished" effect below and CITE_FADE_MS above.
+   */
+  const citeStart = useRef<number | null>(null);
   const outerRef = useRef<HTMLElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const askBlockRef = useRef<HTMLDivElement>(null);
@@ -1008,18 +1083,36 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
    * mentioned, or forgets under a long answer. Every one of those lights the
    * wrong node, which is worse than lighting none, and it would put the
    * feature at the mercy of a prompt surviving model upgrades. See cite.ts.
+   *
+   * This used to match on every `askai:stream` chunk — every token the model
+   * typed re-ran the matcher against the accumulated-so-far text and pushed a
+   * new set straight into state. Nodes flickered in and out mid-sentence as
+   * partial words matched and stopped matching, and whatever was lit at that
+   * instant snapped to its highlighted size with no transition. Matching only
+   * once, against the complete text on `askai:done`, is what "the final one
+   * only" means below — the set of lit nodes is now a single fact about the
+   * finished answer rather than something being recomputed live underneath a
+   * conversation still being typed. `askai:start` (fired the moment a new
+   * question is sent) clears the previous set immediately, so an old
+   * citation never sits there through the next question's thinking time.
    */
   useEffect(() => {
     const match = buildMatcher(graph.nodes);
-    let last = new Set<string>();
-    const onStream = (e: Event) => {
+    const onDone = (e: Event) => {
       const ids = match((e as CustomEvent<string>).detail ?? '');
-      if (sameSet(ids, last)) return;
-      last = ids;
+      citeStart.current = ids.size ? performance.now() : null;
       setCited(ids);
     };
-    window.addEventListener('askai:stream', onStream);
-    return () => window.removeEventListener('askai:stream', onStream);
+    const onStart = () => {
+      citeStart.current = null;
+      setCited(new Set());
+    };
+    window.addEventListener('askai:done', onDone);
+    window.addEventListener('askai:start', onStart);
+    return () => {
+      window.removeEventListener('askai:done', onDone);
+      window.removeEventListener('askai:start', onStart);
+    };
   }, [graph]);
 
   /**
@@ -1250,8 +1343,21 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     const controls = fg.controls?.();
     if (controls) controls.enabled = false;
     const WORLD_ACROSS = (OUTER * 4.7) / 760;
+    /*
+     * How far this window's height sits from the reference, as a bounded
+     * multiplier — see the SCREEN_SCALE_RANGE block above for the two
+     * numbers to change. >1 on windows taller than the reference (external
+     * monitors), <1 on windows shorter than it (small laptops).
+     */
+    const screenScale = Math.min(
+      SCREEN_SCALE_RANGE[1],
+      Math.max(SCREEN_SCALE_RANGE[0], size.h / VIEWPORT_REFERENCE_HEIGHT),
+    );
     // 2·tan(fov/2) for the renderer's default 50° vertical field of view.
-    const solved = (size.h * WORLD_ACROSS) / 0.9326;
+    // Dividing by screenScale is what makes a bigger screen a *closer*
+    // camera (and therefore a bigger graph) rather than merely a wider view
+    // of the same fixed-size object.
+    const solved = (size.h * WORLD_ACROSS) / 0.9326 / screenScale;
     fit.current = solved;
     camDist.current = solved;
     fg.cameraPosition(
@@ -1390,6 +1496,18 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         const cosY = Math.cos(yaw);
         const sinY = Math.sin(yaw);
 
+        /*
+         * 0 → 1 over CITE_FADE_MS, from the moment the finished answer's
+         * citations were set. Only used when the current highlight came from
+         * an answer (`citing`) rather than a hover or a click — a visitor
+         * pointing at a node wants to see it respond immediately, so that
+         * path stays instant and skips this ramp entirely (see its use
+         * below).
+         */
+        const citeT = citeStart.current
+          ? easeOutCubic(clamp01((performance.now() - citeStart.current) / CITE_FADE_MS))
+          : 1;
+
         for (let i = 0; i < nodes.length; i++) {
           const n = nodes[i];
           const [x0, y0, z0] = from[i];
@@ -1504,6 +1622,10 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
             if (!isPerson) opacityMul *= 1 - sculpt * 0.1;
 
             if (highlightIds) {
+              // Hover and selection are a direct response to the pointer and
+              // stay instant (t = 1). A citation is the one case that ramps
+              // in over CITE_FADE_MS instead of snapping — see citeT above.
+              const t = citing ? citeT : 1;
               if (highlightIds.has(n.id)) {
                 /*
                  * A cited node is the subject, not a neighbour of one, so it
@@ -1511,10 +1633,11 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
                  * neighbour scale would make an answer's citations look like
                  * incidental context.
                  */
-                scaleMul *= n.id === activeId ? 1.55 : citing ? 1.5 : 1.25;
+                const targetScale = n.id === activeId ? 1.55 : citing ? 1.5 : 1.25;
+                scaleMul *= 1 + (targetScale - 1) * t;
               } else if (!isPerson) {
-                opacityMul *= 0.18;
-                scaleMul *= 0.85;
+                opacityMul *= 1 - (1 - 0.18) * t;
+                scaleMul *= 1 - (1 - 0.85) * t;
               }
             }
             dot.scale.set(base * scaleMul, base * scaleMul, 1);
