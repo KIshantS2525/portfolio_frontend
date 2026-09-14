@@ -1,6 +1,7 @@
 // src/components/archive/lockerScene.ts
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   CHART_H, CHART_W, hitChart, paintChart,
   type Chart, type ChartNode,
@@ -1132,6 +1133,117 @@ export function buildRoom({
   bulb.position.set(lampX, lampY + 0.335, hatchZ + 0.06);
   scene.add(bulb);
 
+  /* ── the clerk ────────────────────────────────────────────────────────
+   * Somebody is in there.
+   *
+   * The comment at the top of this block has claimed that since the hatch
+   * light was first wired to stay on through the blackout, and until now it
+   * was a claim the room never actually made good on — a warm lit box with
+   * shelves in it and nobody behind the counter, which reads less like an
+   * office still open at night and more like one that was evacuated. The
+   * whole reason the eye walks down this corridor is that the far end looks
+   * occupied. It should be.
+   *
+   * Facing away, deliberately, and not as a shortcut. A back is the one view
+   * of a person that needs no face, no eyes and no expression to be legible,
+   * so there is nothing here to fall into the uncanny valley with — but more
+   * than that, a figure that never turns round is the single strongest thing
+   * this room can do for the mood it is going for. You arrive, you use the
+   * terminal, and the clerk keeps working with their back to you the entire
+   * time. Whether that reads as mundane or as deeply wrong is left to the
+   * visitor, which is exactly where that decision belongs.
+   *
+   * A real model, loaded, rather than primitives assembled in code.
+   *
+   * Two earlier passes tried to build this out of the room's own vocabulary —
+   * first boxes, then tapered cylinders with a faceted sphere for a head. The
+   * second was a large improvement on the first and still wrong, and it is
+   * worth being precise about why, because "add more primitives" is the
+   * obvious next move and it does not converge. A human silhouette is
+   * carried almost entirely by things a solid of revolution cannot express:
+   * the trapezius sloping into the neck, the scapulae, the taper from
+   * ribcage to waist to hip, the way a sleeve breaks at the elbow. Every one
+   * of those is a departure from a circular cross-section, so approximating
+   * them costs another primitive each, and the result reads as a *figure
+   * assembled from parts* right up until it stops being cheap.
+   *
+   * The room is low-poly, but the reference this is going for is not a
+   * low-poly *person* — it is a realistically proportioned, smooth-shaded
+   * human standing in a blocky, flat-shaded environment. That contrast is
+   * the look. So the clerk is the one object in this scene that does not
+   * share the room's construction, deliberately.
+   *
+   * What ships is a ~19k-triangle GLB at about 400KB, reduced from a 60k-tri,
+   * 9MB source: parts that are never in frame (teeth, tongue, eyes,
+   * eyelashes, nails) deleted outright, the rest decimated per-material, the
+   * arms brought down out of the source's T-pose with an eased bend so the
+   * armpits do not tear, and flat vertex colours baked per part because the
+   * source's textures were not distributable. See scripts/build-clerk.py.
+   *
+   * Placed right of the monitor (MON_X is negative) so it never occludes the
+   * terminal the visitor is here to use, and deep enough into the cavity that
+   * the counter crops it at the waist — which is how a serving hatch actually
+   * frames whoever is behind it.
+   */
+  const CLERK_X = 0.46;
+  const CLERK_Z = hatchZ - 0.52;
+  /**
+   * How far round the figure is turned. π is dead-on away from the corridor;
+   * the extra few degrees make it a three-quarter back rather than a flat
+   * one, because a dead-on back is a silhouette and a silhouette is a
+   * cardboard cut-out. Still nowhere near far enough to bring the face round.
+   */
+  const CLERK_TURN = Math.PI + 0.22;
+  const clerk = new THREE.Group();
+  clerk.visible = false; // until the mesh actually arrives
+
+  /*
+   * Loaded async, and the room does not wait for it. This is set dressing at
+   * the far end of a corridor the visitor has to walk down first, so there is
+   * no version of this that should hold up the first frame — it drops in
+   * somewhere during the approach and nobody sees it happen. A failure to
+   * load is equally survivable: the hatch is simply empty, which is what it
+   * was before this existed.
+   */
+  new GLTFLoader().loadAsync('/models/clerk.glb').then((gltf) => {
+    gltf.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      /*
+       * Tuned in place, NOT replaced.
+       *
+       * This used to assign a fresh MeshStandardMaterial with
+       * `vertexColors: true`, left over from when the GLB carried its palette
+       * as a COLOR_0 attribute. The model now ships real glTF materials
+       * instead — one per part, each with its own baseColorFactor — so that
+       * assignment was throwing all five of them away and switching on vertex
+       * colours for an attribute that no longer exists. Every part fell back
+       * to white, and the hatch lamp then tinted the whole figure the same
+       * warm tan: black hair, blue shirt and skin all rendering as one
+       * colour, which looked like a nude mannequin in a wig.
+       *
+       * What is still worth setting here is the shading response. This is the
+       * one object in the room that is not flat-shaded — the lockers want
+       * hard facets, a person wants to round off under a warm light, and that
+       * contrast is most of what makes it read as alive rather than as
+       * furniture.
+       */
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      mat.metalness = 0;
+      mat.roughness = Math.max(0.72, mat.roughness ?? 0.88);
+      mat.flatShading = false;
+      mat.needsUpdate = true;
+    });
+    clerk.add(gltf.scene);
+    clerk.visible = true;
+  }).catch(() => {
+    /* no clerk; the hatch is just empty. */
+  });
+
+  clerk.position.set(CLERK_X, 0, CLERK_Z);
+  clerk.rotation.y = CLERK_TURN;
+  scene.add(clerk);
+
   // Terminal: a screen on a wedge, tilted back. Dark for now — gate 2 puts
   // the conversation on it.
   /* ── the monitor ──────────────────────────────────────────────────────
@@ -1738,6 +1850,23 @@ export function buildRoom({
     moon.intensity = 0.5 * (1 - l2);
     // The hatch keeps its lamp on. Somebody is in there.
     hatchLight.intensity = 4.4 + 2.6 * l2;
+
+    /*
+     * ...and that somebody is breathing.
+     *
+     * A perfectly motionless figure reads as a mannequin within about two
+     * seconds of being looked at, and the visitor will look at it for much
+     * longer than that — it is the only human thing in the room. This is the
+     * smallest amount of movement that fixes it: a slow rise and fall, and a
+     * weight shift on a longer, deliberately non-matching period so the two
+     * never sync up into an obvious loop. No turning, no reacting, no
+     * acknowledgement that anyone has walked up to the counter. The stillness
+     * is the point; the breathing is only what keeps the stillness meaning
+     * something.
+     */
+    const ct = performance.now() * 0.001;
+    clerk.position.y = Math.sin(ct * 0.9) * 0.006;
+    clerk.rotation.y = CLERK_TURN + Math.sin(ct * 0.31) * 0.022;
     stripMat.opacity = 0.08 + 0.92 * l2;
     signMat.emissiveIntensity = 0.16 + 0.44 * l2;
     // Backlit, so it stays readable in the dark — like every real one.
