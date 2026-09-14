@@ -1,0 +1,304 @@
+/* src/components/game/game.css */
+
+/*
+ * Scoped tokens for this room, following the same pattern the archive uses:
+ * its own palette, shadowed onto a class, so it never has to agree with
+ * whatever the site's light/dark theme is doing.
+ */
+.voxel-room {
+  --hud-ink: #f4efe2;
+  --hud-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+  color-scheme: dark;
+}
+
+.voxel-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  pointer-events: none;
+}
+.voxel-crosshair::before,
+.voxel-crosshair::after {
+  content: '';
+  position: absolute;
+  background: var(--hud-ink);
+  box-shadow: var(--hud-shadow);
+}
+.voxel-crosshair::before {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  margin-left: -1px;
+}
+.voxel-crosshair::after {
+  top: 50%;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  margin-top: -1px;
+}
+
+.voxel-break-ring {
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  opacity: 0.85;
+  mask: radial-gradient(circle, transparent 55%, black 56%);
+  -webkit-mask: radial-gradient(circle, transparent 55%, black 56%);
+}
+
+.voxel-hearts {
+  display: flex;
+  gap: 3px;
+}
+.voxel-heart {
+  width: 20px;
+  height: auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+}
+
+.voxel-hint {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--hud-ink);
+  text-shadow: var(--hud-shadow);
+}
+
+.voxel-hurt-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(178, 40, 40, 0.45) 100%);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+/* The pull cord in here hangs top-left, clear of the health/hint HUD which
+   both live top-right, and clear of the archive's own cord positioning. */
+.world-pullcord {
+  --pullcord-top: 0px;
+  --pullcord-right: auto;
+  --pullcord-left: 40px;
+}
+
+/*
+ * The hotbar reads as a physical strip rather than a row of web buttons: a
+ * hard 2px outer edge, no border-radius anywhere, and light/dark bevels on
+ * opposite corners — the same two-tone inset trick that pixel-art UIs have
+ * used since they had four colours to work with. Rounded corners and soft
+ * shadows would put it back in the same visual family as the rest of the
+ * site, which is exactly what this room is not.
+ */
+.voxel-hotbar {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  background: rgba(22, 20, 17, 0.82);
+  border: 2px solid #0d0b09;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.16),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.6),
+    0 4px 14px rgba(0, 0, 0, 0.5);
+}
+.voxel-slot {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(120, 114, 104, 0.28);
+  box-shadow:
+    inset 1px 1px 0 rgba(0, 0, 0, 0.55),
+    inset -1px -1px 0 rgba(255, 255, 255, 0.18);
+}
+.voxel-slot[data-active='true'] {
+  background: rgba(226, 219, 202, 0.22);
+  outline: 2px solid #f4efe2;
+  outline-offset: -1px;
+}
+.voxel-icon {
+  width: 34px;
+  height: 34px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.voxel-icon-sm {
+  width: 22px;
+  height: 22px;
+  image-rendering: pixelated;
+}
+.voxel-slot-key {
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  font-size: 9px;
+  line-height: 1;
+  color: rgba(244, 239, 226, 0.5);
+  text-shadow: var(--hud-shadow);
+  pointer-events: none;
+}
+.voxel-count {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-ink);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+}
+
+.voxel-recipe {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 14px;
+  color: var(--hud-ink);
+  border: 2px solid #0d0b09;
+  padding: 10px 18px;
+  background: rgba(120, 114, 104, 0.28);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.16),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.5);
+  transition: background 150ms ease;
+}
+.voxel-recipe[data-ok='false'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.voxel-recipe[data-ok='true']:hover {
+  background: rgba(226, 219, 202, 0.24);
+}
+
+/* ── loading, prompts, modals ─────────────────────────────────────────── */
+
+.voxel-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: #0b0d12;
+  z-index: 20;
+}
+.voxel-loading-title {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--hud-ink);
+}
+.voxel-loading-bar {
+  position: relative;
+  display: block;
+  width: 220px;
+  height: 8px;
+  background: rgba(244, 239, 226, 0.12);
+  overflow: hidden;
+}
+.voxel-loading-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: var(--hud-ink);
+  animation: voxel-slide 1.1s ease-in-out infinite;
+}
+@keyframes voxel-slide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(360%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voxel-loading-bar i { animation: none; width: 100%; }
+}
+
+/* The interaction prompt sits just under the crosshair, where the eye
+   already is, rather than in a corner the player has to look away to read. */
+.voxel-prompt {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 34px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(16, 14, 11, 0.7);
+  border: 2px solid #0d0b09;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 13px;
+  color: var(--hud-ink);
+  pointer-events: none;
+}
+.voxel-prompt kbd {
+  padding: 1px 6px;
+  background: rgba(244, 239, 226, 0.9);
+  color: #16140f;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.voxel-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 15;
+}
+.voxel-modal-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 34px;
+  background: rgba(22, 20, 17, 0.96);
+  border: 2px solid #0d0b09;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.14),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+.voxel-modal-wide { max-width: 54ch; }
+.voxel-body {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 15px;
+  line-height: 1.6;
+  color: rgba(244, 239, 226, 0.88);
+}
+
+.voxel-sleep {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #05070c;
+  z-index: 18;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 15px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(244, 239, 226, 0.75);
+  animation: voxel-fade 1.5s ease;
+}
+@keyframes voxel-fade {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0.9; }
+}

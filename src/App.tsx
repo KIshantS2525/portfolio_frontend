@@ -18,6 +18,13 @@ const Admin = lazy(() => import('@/routes/Admin'));
 const Archive = lazy(() => import('@/routes/Archive'));
 
 /**
+ * Third door, same reasoning: a voxel island with its own render loop and
+ * pointer-lock controls is not something a reader who never clicks the door
+ * should have to download.
+ */
+const Game = lazy(() => import('@/routes/Game'));
+
+/**
  * Metadata is set per route here rather than by a framework. There is no SSR in
  * a Vite SPA, so crawlers that don't execute JavaScript see whatever is in
  * index.html — which is why the canonical tags, Open Graph tags and the
@@ -37,7 +44,9 @@ function RouteMeta() {
   useEffect(() => {
     document.title = pathname.startsWith('/admin')
       ? `Admin — ${profile.name}`
-      : `${profile.name} — ${profile.title}`;
+      : pathname.startsWith('/game')
+        ? `The Island — ${profile.name}`
+        : `${profile.name} — ${profile.title}`;
 
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (canonical) canonical.href = new URL('/', window.location.origin).href;
@@ -79,7 +88,7 @@ function RouteMeta() {
  */
 function SiteChrome() {
   const { pathname } = useLocation();
-  if (pathname.startsWith('/archive')) return null;
+  if (pathname.startsWith('/archive') || pathname.startsWith('/game')) return null;
   return (
     <>
       <SmoothScroll />
@@ -117,6 +126,14 @@ export default function App() {
               fallback={<div className="min-h-screen bg-[var(--surface)]" aria-hidden />}
             >
               <Archive />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/game"
+          element={
+            <Suspense fallback={<div className="min-h-screen bg-black" aria-hidden />}>
+              <Game />
             </Suspense>
           }
         />

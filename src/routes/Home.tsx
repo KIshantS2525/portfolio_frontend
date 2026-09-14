@@ -13,6 +13,7 @@ import { Reveal } from '@/components/core/Reveal';
 import { useProjects } from '@/lib/useContent';
 import { useProfile } from '@/lib/useContent';
 import { ArchiveDoor } from '@/components/archive/ArchiveDoor';
+import { GameDoor } from '@/components/game/GameDoor';
 
 /** Lazy for the same reason every three.js entry point on this site is: it never touches first paint. */
 const GraphJourney = lazy(() =>
@@ -115,8 +116,9 @@ export default function Home() {
           arriving visitor to choose between two experiences before they have
           seen either.
         */}
-        <section className="shell pt-[96px]">
+        <section className="shell flex flex-wrap gap-[16px] pt-[96px]">
           <ArchiveDoor />
+          <GameDoor />
         </section>
       </main>
 

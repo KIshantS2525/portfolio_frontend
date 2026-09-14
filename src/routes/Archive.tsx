@@ -9,7 +9,7 @@ import { WritingPad } from '@/components/archive/WritingPad';
 import { TerminalBoot } from '@/components/archive/TerminalBoot';
 import { TerminalChat } from '@/components/archive/TerminalChat';
 import { boardRows, type ContactRow } from '@/components/archive/NoticeBoard';
-import '@/components/archive/archive.css';
+import '@/components/archive/Archive.css';
 import { buildChart } from '@/components/archive/wallChart';
 import { buildMatcher, sameSet } from '@/components/archive/cite';
 import { buildGraph } from '@/lib/graph';

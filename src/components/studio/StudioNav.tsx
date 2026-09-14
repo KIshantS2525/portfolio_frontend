@@ -106,6 +106,21 @@ export function StudioNav() {
               >
                 Archive
               </Link>
+              {/*
+                The third path, warmed the same way. Called "Survival" rather
+                than anything naming the game it resembles: the room is an
+                island with a bed, a night that bites and a sword, which is
+                what the word describes — and the site should not be leaning
+                on somebody else's trademark to explain its own feature.
+              */}
+              <Link
+                to="/game"
+                onPointerEnter={() => void import('@/routes/Game')}
+                onFocus={() => void import('@/routes/Game')}
+                className="t-nav hidden text-ash transition-colors hover:text-bone sm:inline"
+              >
+                Survival
+              </Link>
               <a href="#ask" className="pill !px-[20px] !py-[11px]">
                 Ask AI
               </a>
