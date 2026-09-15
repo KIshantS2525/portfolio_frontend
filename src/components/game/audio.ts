@@ -26,6 +26,9 @@ export class GameAudio {
   muted = false;
   /** True while the game is paused (pointer unlocked, dead, or off-screen) — every sound is gated on this too. */
   private paused = false;
+  /** Countdown to the next zombie groan / skeleton rattle — see zombieNear/skeletonNear. */
+  private zombieTimer = 0;
+  private skeletonTimer = 0;
 
   /** Must be called from a user gesture (the click that locks the pointer). */
   start() {
@@ -160,6 +163,35 @@ export class GameAudio {
   pickup() { this.tone(880, 0.09, 0.10, 'triangle', 1320); }
   /** A landed hit on a mob — distinct from the player's own `hurt()`, so a swing that connects is audible even from a mob that never cries out. */
   mobHit() { this.burst(200, 1.4, 0.002, 0.10, 0.24, 'lowpass'); }
+
+  /**
+   * Ambient "something hostile is near" cues — there was no way to tell a
+   * zombie or skeleton was closing in except seeing it, which on a night map
+   * with trees and buildings blocking sightlines meant it was often right on
+   * top of the player before they knew it existed. `proximity01` is 0 (out
+   * of range) to 1 (right next to the player); the closer it is, the more
+   * often the cue plays, via a countdown timer rather than a fixed interval
+   * so it never fires more than once at a time and idles quietly when
+   * nothing is near. Zombie and skeleton get distinct sounds (a low groan
+   * vs a higher, brighter rattle) so which threat is closing in is audible
+   * on its own, before it's even in view.
+   */
+  zombieNear(dt: number, proximity01: number) {
+    this.zombieTimer -= dt;
+    if (proximity01 <= 0) { this.zombieTimer = Math.max(this.zombieTimer, 0.4); return; }
+    if (this.zombieTimer > 0) return;
+    this.zombieTimer = 3.2 - proximity01 * 2.4 + Math.random() * 1.2;
+    const base = 70 + Math.random() * 25;
+    this.tone(base, 0.42, 0.11 + proximity01 * 0.08, 'sawtooth', base * 0.75);
+  }
+
+  skeletonNear(dt: number, proximity01: number) {
+    this.skeletonTimer -= dt;
+    if (proximity01 <= 0) { this.skeletonTimer = Math.max(this.skeletonTimer, 0.4); return; }
+    if (this.skeletonTimer > 0) return;
+    this.skeletonTimer = 3.6 - proximity01 * 2.6 + Math.random() * 1.3;
+    this.burst(1400 + Math.random() * 500, 3.2, 0.002, 0.16, 0.09 + proximity01 * 0.07, 'highpass');
+  }
   open() { this.tone(420, 0.16, 0.10, 'triangle', 620); }
 
   /**

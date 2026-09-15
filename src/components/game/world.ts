@@ -4,8 +4,9 @@ import { Block, TRANSPARENT, tilesFor, uvRect, buildAtlas, DROP_FOR } from '@/co
 import { paintSign, paintSignTitle } from '@/components/game/noticeBoard';
 import { Water } from '@/components/game/water';
 import { Chest, MapBoard } from '@/components/game/props';
+import type { FixtureStyle } from '@/components/game/torches';
 import {
-  buildCanopyBed, buildBookshelf, buildRug, buildHangingLantern,
+  buildCanopyBed, buildBookshelf, buildRug, buildSimpleBed,
   buildFramedArt, buildPottedPlant, buildBarrel, buildFireplace, buildDoor,
 } from '@/components/game/decor';
 import type { Project, Profile } from '@/lib/content';
@@ -31,6 +32,8 @@ export const WATER_Y = 3;
 export const MAX_H = 20;
 const CENTER = SIZE / 2;
 const PLATEAU_R = 10; // flattened disc the house sits on — grown to match the bigger house
+/** Beach terrace depth, in from the map edge — hoisted so the lighting pass (buildWorld) can find a shoreline without duplicating this. */
+const BEACH_END = 7;
 /**
  * The island's base elevation.
  *
@@ -98,7 +101,6 @@ export function heightAtRaw(x: number, z: number): number {
    */
   const edgeDist = Math.min(x, z, SIZE - 1 - x, SIZE - 1 - z);
   const SURF_END = 3;    // below this, seabed rising to the waterline
-  const BEACH_END = 7;   // flat sand terrace ends here
   const BLEND_END = 11;  // fully back to inland height
   const SHELF = WATER_Y + 1.7;
 
@@ -224,11 +226,14 @@ function buildHouse(overlay: Overlay, hm: Heightmap): HouseInfo {
     ],
     // North keeps just one window (east end) — the west end is the bed nook.
     N: [{ start: half - 4, glassW: 3, y0: base + 2, y1: base + 4 }],
-    // One window near the door end — the rest of the wall stays clear for plaques.
+    // West window, near the door end — this wall no longer hosts any
+    // plaques (see the gallery section: every project moved to the east
+    // wall, away from the bed), so its only remaining constraint is staying
+    // clear of the corners and the bed nook.
     W: [{ start: half - 4, glassW: 3, y0: base + 2, y1: base + 4 }],
-    // One window near the back end, mirrored to the opposite end from the
-    // west wall's — asymmetric on purpose, and it leaves the *other* end of
-    // this wall clear for plaques too.
+    // East window, at the opposite (back) end from the west wall's — this
+    // is the gallery wall, so the window stays confined to one end and the
+    // rest of the wall is reserved for project plaques.
     E: [{ start: -(half - 1), glassW: 3, y0: base + 2, y1: base + 4 }],
   };
 
@@ -395,10 +400,21 @@ function blockFor(hm: Heightmap, overlay: Overlay, removed: Set<string>, x: numb
   return Block.STONE;
 }
 
+/**
+ * `TRANSPARENT` (leaves and glass) governs rendering — which mesh builder a
+ * block goes into and which neighbouring faces get culled against it — not
+ * physics. Treating it as "therefore not solid" was the actual bug: leaves
+ * being walkable is a reasonable, deliberate choice (real physics or not,
+ * a canopy you can't walk through is annoying), but it also silently made
+ * every window in the game walk-through-able, glass included, which isn't
+ * a style choice, it's just wrong. Only leaves get the walk-through
+ * exception now; glass is solid like any other wall block.
+ */
+const WALKABLE_TRANSPARENT = new Set<Block>([Block.LEAVES]);
 function isSolid(hm: Heightmap, overlay: Overlay, removed: Set<string>, x: number, y: number, z: number): boolean {
   if (y < 0) return true;
   const b = blockFor(hm, overlay, removed, x, y, z);
-  return b !== Block.AIR && !TRANSPARENT.has(b);
+  return b !== Block.AIR && !WALKABLE_TRANSPARENT.has(b);
 }
 
 /**
@@ -411,6 +427,11 @@ function isSolid(hm: Heightmap, overlay: Overlay, removed: Set<string>, x: numbe
  * neighbour-visibility check in the mesher uses instead of `isSolid`, so
  * mesh-invisible cells are treated as *not* solid for that one purpose
  * while collision (`isSolid`, `isSolidAt`, `isMobSolidAt`) is untouched.
+ *
+ * This one still checks the full render-facing `TRANSPARENT` set (not the
+ * narrower `WALKABLE_TRANSPARENT`) — glass being solid now is a physics
+ * change, not a rendering one, so two adjacent panes still cull their
+ * shared face the same way they always did.
  */
 const MESH_INVISIBLE = new Set<Block>([Block.BEDRED, Block.BEDWHITE]);
 function isSolidForMesh(hm: Heightmap, overlay: Overlay, removed: Set<string>, x: number, y: number, z: number): boolean {
@@ -518,7 +539,18 @@ function buildCottage(overlay: Overlay, hm: Heightmap, cx: number, cz: number, w
       }
     }
   }
-  return { doorX: cx, doorZ: doorZ + 1, base };
+  /*
+   * A bed against the back wall (opposite the door) — every cottage was
+   * otherwise an empty shell with nothing inside marking it as somewhere a
+   * villager actually lives. This also gives the night-time "go home and
+   * sleep" behaviour an actual bed to sleep *in* rather than just a door to
+   * stand near.
+   */
+  const bedX = cx - 1;
+  const bedZ = cz - d + 1;
+  overlay.set(key(bedX, base + 1, bedZ), Block.BEDRED);
+  overlay.set(key(bedX + 1, base + 1, bedZ), Block.BEDWHITE);
+  return { doorX: cx, doorZ: doorZ + 1, base, bedPos: new THREE.Vector3(bedX + 0.5, base + 1.5, bedZ + 0.5) };
 }
 
 export type BuiltWorld = {
@@ -557,9 +589,9 @@ export type BuiltWorld = {
   /** Where the resident guide NPC starts and wanders — the centre of the great room floor. */
   guideHome: THREE.Vector3;
   /** Doorsteps of the village cottages — where townsfolk and the guardian live. */
-  village: { x: number; z: number }[];
+  village: { x: number; z: number; bedPos: THREE.Vector3; groundY: number }[];
   /** Where torches should stand: doorways, cottages, and the corners of the great room. */
-  torchSpots: { x: number; y: number; z: number }[];
+  torchSpots: { x: number; y: number; z: number; style: FixtureStyle }[];
   /**
    * Removes whatever's at this cell and returns the item it drops (or null
    * for air / undroppable blocks like glass and the bed). Session-only: this
@@ -627,7 +659,7 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
    * coordinates, so they follow the island when SIZE changes instead of
    * ending up stranded on the far shore.
    */
-  const village: { x: number; z: number }[] = [];
+  const village: { x: number; z: number; bedPos: THREE.Vector3; groundY: number }[] = [];
   const VOFF = -26; // village sits this far NW of centre
   const cottageOffsets: [number, number][] = [
     [0, 0], [6, -2], [12, -2], [-2, 7], [-2, 13],
@@ -635,9 +667,25 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   const cottages: [number, number, number, number][] = cottageOffsets.map(
     ([ox, oz]) => [Math.round(CENTER + VOFF + ox), Math.round(CENTER + VOFF + oz), 2, 2],
   );
+  const cottageBedMeshes: THREE.Group[] = [];
   for (const [cx2, cz2, w, d] of cottages) {
     const built = buildCottage(overlay, hm, cx2, cz2, w, d);
-    if (built) village.push({ x: built.doorX, z: built.doorZ });
+    if (built) {
+      // `groundY` is the cottage's known floor height, used instead of
+      // `heightAt()` for anything spawned here (see its use in Game.tsx). A
+      // roofed building is exactly the case `heightAt()` gets wrong: it
+      // scans downward from the sky for the first solid block, and under a
+      // roof that's the roof itself, not the floor underneath it — so
+      // spawning a villager at "heightAt(doorX, doorZ) + 1" put it on top of
+      // the cottage's own roof, not on the ground at the door.
+      village.push({ x: built.doorX, z: built.doorZ, bedPos: built.bedPos, groundY: built.base + 1 });
+      // The bed's actual mesh — see buildSimpleBed's own comment for why
+      // this was missing: the voxel bed cells are deliberately invisible in
+      // the world mesh, and nothing was standing in for them here the way
+      // buildCanopyBed does for the player's own bed. `group` doesn't exist
+      // yet at this point in the function, so these are added to it below.
+      cottageBedMeshes.push(buildSimpleBed(built.bedPos.x, built.bedPos.y - 0.5, built.bedPos.z));
+    }
   }
 
   // Trees last, so they can be skipped where a cottage has already landed.
@@ -650,9 +698,25 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   const atlas = buildAtlas();
   const group = new THREE.Group();
   group.name = 'voxel-world';
+  for (const bed of cottageBedMeshes) group.add(bed);
 
   const opaqueMat = new THREE.MeshLambertMaterial({ map: atlas });
-  const transMat = new THREE.MeshLambertMaterial({ map: atlas, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+  /*
+   * `alphaTest` (a hard cutout) and `transparent: true` (soft alpha
+   * blending) solve different problems, and having both set was the
+   * expensive combination: `transparent: true` routes every leaf and pane
+   * of glass in the world through the blended render queue regardless of
+   * the cutout — no early-Z rejection, and everything in it has to be
+   * depth-sorted back-to-front every frame. With a painted, hard-edged
+   * atlas texture (no soft/partial alpha anywhere in it), the cutout alone
+   * is doing all the actual work; dropping `transparent` moves leaves and
+   * glass into the ordinary opaque pass, where they get proper depth
+   * culling like every other block. This is the single biggest lever
+   * available for "the world gets heavy in the forest" — foliage is
+   * exactly the geometry that was paying the blended-transparency tax for
+   * no visual benefit.
+   */
+  const transMat = new THREE.MeshLambertMaterial({ map: atlas, alphaTest: 0.4, side: THREE.DoubleSide });
   const terrainGroup = new THREE.Group();
   terrainGroup.name = 'terrain';
   group.add(terrainGroup);
@@ -779,15 +843,25 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
 
   /*
    * At SIZE 140 the whole island is 9x9 chunks, so with a view radius of 5
-   * everything stays resident and nothing is ever evicted. That is fine and
-   * deliberate: the measured cost of meshing the entire world is ~16ms total,
-   * and the wins chunking actually buys here are elsewhere —
+   * everything is "wanted" from anywhere near the middle of the map — this
+   * was never a radius that shrinks what's loaded, just a staged, one-time
+   * build budget. That's deliberate: the measured cost of meshing the
+   * entire world is ~16ms total, which is cheap enough to just build once
+   * rather than actually stream in and evict as the player moves around a
+   * map this size. The wins chunking still buys here are elsewhere —
    *
    *   · a block edit rebuilds one 16x16 chunk (~0.04ms) instead of the whole
    *     world (~12ms), which is the difference between instant and a hitch
    *     on every single click;
-   *   · startup spreads the build across frames behind the loading screen
-   *     instead of blocking in one lump.
+   *   · the *loading screen* (Game.tsx) now keeps itself up until every
+   *     chunk in `wanted` is actually built, rather than hiding after a
+   *     fixed couple of frames regardless — the previous version primed
+   *     only a `budget: 25` burst near spawn and then handed control to the
+   *     player with most of the island still unbuilt, which streamed in
+   *     live at a trickle the moment they started moving. Since players
+   *     start moving the instant they can, that trickle landed reliably on
+   *     top of "I just started running", which is what was actually being
+   *     reported as lag.
    *
    * The eviction path still exists and still works, so raising SIZE further
    * degrades gracefully rather than needing a rewrite.
@@ -861,14 +935,15 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
    * between them. The house is built wide specifically so this fits: at
    * `half = 7` each side wall has room for a handful of plaques with clear
    * margin at the corners, the bed nook, the doorway, and — now that these
-   * walls have real windows — the window each of them carries. The west
-   * wall's window sits at its door (south) end, so the gallery run there
-   * uses the rest of the wall (north of it); the east wall's window is
-   * mirrored to the opposite end, so its gallery run sits south of it.
+   * walls have real windows — the window each of them carries. Every
+   * project now hangs on the east wall alone: with the bed moved into the
+   * north-west corner nook, "no projects near the bed" and "one wall,
+   * not two" are really the same request, so consolidating there instead
+   * of splitting west/east is what actually satisfies both at once.
    *
-   * The project list is admin-controlled and unbounded, so a single row per
-   * wall isn't enough on its own — it would just let plaques start
-   * overlapping once the count outgrew the wall length. `layoutOnWall`
+   * The project list is admin-controlled and unbounded, so relying on a
+   * single row along that wall wouldn't scale — it would just let plaques
+   * start overlapping once the count outgrew the wall length. `layoutOnWall`
    * wraps into extra rows (zig-zagging up and down from eye level) once a
    * row fills up, so adding a project in the admin panel always adds a
    * *visible, non-overlapping* plaque here rather than crowding an existing
@@ -880,19 +955,12 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   const galleryGroup = new THREE.Group();
   galleryGroup.name = 'gallery';
 
-  // Usable z-range on each wall: inside the corners, clear of that wall's
-  // own window, and (on the west wall) clear of the bed nook too.
-  // Widened after the windows grew from 2 columns to 3 (brief: "increase
-  // windows and add glass to them") — each zone now keeps a full block of
-  // clearance from the wider window frame and the bed-nook corner, not just
-  // enough to avoid literally overlapping it, so a plaque never ends up
-  // hanging close enough to a window or the bed to read as misplaced.
-  const westZ0 = cz - half + 4; // clear of the bed-nook corner
-  const westZ1 = cz + half - 6; // clear of the west wall's door-end window
+  // Usable z-range on the east (gallery) wall: inside the corners and clear
+  // of its own window, with a full block of buffer on each side so a
+  // plaque never ends up hanging close enough to read as misplaced.
   const eastZ0 = cz - half + 5; // clear of the east wall's back-end window
   const eastZ1 = cz + half - 3;
 
-  const westX = cx - half + 0.52; // just proud of the interior west wall face
   const eastX = cx + half - 0.52; // just proud of the interior east wall face
   const plaqueY = floorY + 1.55; // comfortable reading height, row 0
 
@@ -918,25 +986,18 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
     return out;
   }
 
-  const westCount = projects.filter((_, i) => i % 2 === 0).length;
-  const eastCount = projects.length - westCount;
-  const westLayout = layoutOnWall(westCount, westZ0, westZ1, plaqueY);
-  const eastLayout = layoutOnWall(eastCount, eastZ0, eastZ1, plaqueY);
+  const eastLayout = layoutOnWall(projects.length, eastZ0, eastZ1, plaqueY);
 
-  let westI = 0;
-  let eastI = 0;
   projects.forEach((p, i) => {
-    const onWest = i % 2 === 0;
-    const pos = onWest ? westLayout[westI++] : eastLayout[eastI++];
-
+    const pos = eastLayout[i];
     const plaque = buildWallPlaque(p.name);
     plaque.userData.slug = p.slug;
-    // A plane's default normal is +Z; rotating ±90° about Y points it into
-    // the room from whichever wall it's hanging on (see the derivation in
-    // the comment on buildWallPlaque below).
-    const facing = onWest ? Math.PI / 2 : -Math.PI / 2;
+    // A plane's default normal is +Z; rotating -90° about Y points it into
+    // the room from the east wall (see the derivation in the comment on
+    // buildWallPlaque below).
+    const facing = -Math.PI / 2;
     plaque.rotation.y = facing;
-    plaque.position.set(onWest ? westX : eastX, pos.y, pos.z);
+    plaque.position.set(eastX, pos.y, pos.z);
     galleryGroup.add(plaque);
     boards.push({ slug: p.slug, position: plaque.position.clone(), facing });
   });
@@ -1011,10 +1072,12 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   group.add(buildRug(cx + 0.5, floorY, cz + 0.5, 3.4, 3.4, Math.PI / 4, '#6b4530', '#e8d2a0'));
 
   /*
-   * Hanging lanterns — decoration only; each one's actual light comes from
-   * the torch pool below via a matching `torchSpots` entry, the same way
-   * the fireplace's does. Hung from a nominal ceiling line just under the
-   * belt course, well clear of head height under `wallH`-tall walls.
+   * Ceiling fixtures — modern tube lights, per the brief's "home lighting
+   * should be tube lights and bulbs" rather than more hanging lanterns.
+   * The fixture mesh itself is drawn by the Torches class (see the matching
+   * `torchSpots` entry below with style 'tube'); there's nothing to add to
+   * `group` here — unlike the old lantern prop, the tube *is* the torch
+   * pool's fixture, not a separate decoration next to it.
    */
   const ceilingY = house.baseY + wallH + 0.6;
   const lanternSpots: { x: number; z: number }[] = [
@@ -1022,7 +1085,6 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
     { x: cx + 0.5, z: cz + 0.5 }, // centre of the room, over the guide
     { x: cx - half + 3, z: cz - 2 }, // over the bed/bookshelf corner
   ];
-  for (const s of lanternSpots) group.add(buildHangingLantern(s.x, ceilingY, s.z));
 
   /*
    * The gate: a low wooden gate across the porch, at the same column as the
@@ -1052,29 +1114,83 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
    * corner torches over a 15x15 floor leaves the middle of each wall (and
    * every new piece of furniture) sitting in shadow.
    */
-  const torchSpots: { x: number; y: number; z: number }[] = [];
-  const addTorch = (x: number, z: number) => {
+  const torchSpots: { x: number; y: number; z: number; style: FixtureStyle }[] = [];
+  const addTorch = (x: number, z: number, style: FixtureStyle = 'torch') => {
     if (!inBounds(x, z)) return;
-    torchSpots.push({ x: x + 0.5, y: heightAt(x, z) + 1, z: z + 0.5 });
+    torchSpots.push({ x: x + 0.5, y: heightAt(x, z) + 1, z: z + 0.5, style });
   };
   addTorch(house.doorX - 1, house.doorZ);
   addTorch(house.doorX + 1, house.doorZ);
-  for (const v of village) addTorch(v.x, v.z + 1);
+  // Cottage doorstep torches, placed at the cottage's own known floor
+  // height rather than through `addTorch`'s `heightAt()` lookup — the same
+  // roof-vs-floor ambiguity that misplaced villager spawns (see the comment
+  // by `groundY`'s definition above) would just as easily have put one of
+  // these floating up on a roof instead of standing by the door.
+  for (const v of village) torchSpots.push({ x: v.x + 0.5, y: v.groundY, z: v.z + 1.5, style: 'torch' });
+
+  /*
+   * "Light the village and the island, leave the forest and the beach dark
+   * for the zombies and skeletons to spawn in, except one small lit beach
+   * spot." The house and the village already had their own torches; what
+   * was missing was anything marking the *safe ground between them and
+   * around them* — so the lit area read as two small islands of light in
+   * an otherwise pitch-black map rather than one coherent "this is the
+   * safe zone" territory. None of this touches the forest or the beach
+   * ring at all — that's what stays dark by simply never getting a torch.
+   */
+
+  // A ring of lamp posts around the plateau the house sits on, marking the
+  // edge of "safe ground" the way a real perimeter light would.
+  const plateauLampR = PLATEAU_R + 2;
+  const plateauLamps = 8;
+  for (let i = 0; i < plateauLamps; i++) {
+    const a = (i / plateauLamps) * Math.PI * 2;
+    addTorch(Math.round(cx + Math.cos(a) * plateauLampR), Math.round(cz + Math.sin(a) * plateauLampR));
+  }
+
+  // A couple of extra lamps around the village green, beyond just each
+  // cottage's own doorstep, so the space between the cottages reads as lit
+  // too rather than five separate pools of light with darkness in between.
+  if (village.length) {
+    const vx = village.reduce((a, v) => a + v.x, 0) / village.length;
+    const vz = village.reduce((a, v) => a + v.z, 0) / village.length;
+    addTorch(Math.round(vx), Math.round(vz));
+    addTorch(Math.round(vx) + 5, Math.round(vz) - 3);
+    addTorch(Math.round(vx) - 5, Math.round(vz) + 4);
+  }
+
+  /*
+   * The one small lit stretch of beach: due south of the house, along the
+   * same axis as the front door, ending in a little torch-lit cluster right
+   * at the shoreline. Everywhere else on the coastline stays dark — this is
+   * deliberately one spot, not a lit ring around the whole island, so
+   * exploring the rest of the beach still means bringing your own torch.
+   */
+  const beachX = cx;
+  const beachZ = Math.min(SIZE - BEACH_END - 2, cz + half + 24);
+  for (const dx of [-1.5, 1.5]) addTorch(Math.round(beachX + dx), Math.round(beachZ));
+  addTorch(Math.round(beachX), Math.round(beachZ) + 3);
+
   // Interior corners, inset one block from the walls so the torch isn't
-  // buried inside the log framing.
-  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz - half + 1.5 });
-  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz - half + 1.5 });
-  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz + half - 1.5 });
-  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz + half - 1.5 });
+  // buried inside the log framing. Wall sconces (bulbs), not torches — per
+  // the brief, the house's own lighting should read as modern fixtures,
+  // saved for the outdoor world and the village.
+  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz - half + 1.5, style: 'bulb' });
+  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz - half + 1.5, style: 'bulb' });
+  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz + half - 1.5, style: 'bulb' });
+  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz + half - 1.5, style: 'bulb' });
   // Gallery-wall midpoints, so the plaques are lit rather than just the
   // corners and the doorway.
-  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz + 0.5 });
-  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz + 0.5 });
+  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz + 0.5, style: 'bulb' });
+  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz + 0.5, style: 'bulb' });
   // The hearth's own glow — matched to the firebox glow mesh's actual
-  // position in buildFireplace (group origin + local y=0.46, z=0.34).
-  torchSpots.push({ x: cx + 0.5, y: floorY + 0.46, z: cz - half + 0.52 + 0.34 });
-  // Each hanging lantern's light, at the fixture's actual glowing core.
-  for (const s of lanternSpots) torchSpots.push({ x: s.x, y: ceilingY - 0.52, z: s.z });
+  // position in buildFireplace (group origin + local y=0.46, z=0.34). No
+  // fixture mesh: the fireplace already has its own purpose-built glow
+  // plane, so this is a light-only spot ('none') rather than stacking a
+  // second prop on top of it.
+  torchSpots.push({ x: cx + 0.5, y: floorY + 0.46, z: cz - half + 0.52 + 0.34, style: 'none' });
+  // Ceiling tube lights, at each of the spots the old hanging lanterns used.
+  for (const s of lanternSpots) torchSpots.push({ x: s.x, y: ceilingY - 0.15, z: s.z, style: 'tube' });
 
   /** Where the resident guide stands and wanders — dead centre of the hall. */
   const guideHome = new THREE.Vector3(cx + 0.5, floorY, cz + 0.5);

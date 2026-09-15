@@ -39,6 +39,10 @@ export type Mob = {
    * night falls, with no way to tell it apart from actually being stuck.
    */
   indoor?: boolean;
+  /** Where this villager's bed is — reaching it at night means going to sleep (hidden), not idling by the door all night. */
+  sleepPos?: THREE.Vector2;
+  /** True while asleep (hidden, motionless indoors) — cleared and the mob reappears at dawn. */
+  sleeping?: boolean;
   /** Counts down after a hit; drives the red damage flash. 0 = no flash. */
   flashT: number;
   /** Every material this mob's body uses, with its original colour — what the flash lerps away from and back to. */
@@ -424,8 +428,17 @@ const BODY: Record<MobKind, { half: number; height: number }> = {
   guardian: { half: 0.45, height: 2.6 },
 };
 
+/*
+ * Sheep, pigs and villagers were all low enough (3, 3, 6) that a single
+ * player hit (3 damage, see tryAttackMob in Game.tsx) killed a sheep or pig
+ * outright and put a villager one hit from dead — "they literally die in a
+ * single hit". None of these are meant to be fights, but a hit should still
+ * read as a hit rather than an instant kill; bumped so each takes a small
+ * handful of solid hits, in line with how much heavier the new knockback
+ * and damage-flash feedback now makes every hit feel.
+ */
 const HP_BY_KIND: Record<MobKind, number> = {
-  zombie: 6, skeleton: 4, sheep: 3, pig: 3, villager: 6, guardian: 30,
+  zombie: 6, skeleton: 4, sheep: 8, pig: 8, villager: 12, guardian: 30,
 };
 
 /** Mobs that never attack, and that the player's sword ignores. */
@@ -436,6 +449,12 @@ export const HOSTILE = new Set<MobKind>(['zombie', 'skeleton']);
 const AGGRO_R = 13;
 const SPEED = 1.6;
 const ATTACK_R = 1.15;
+/** The golem: slow and heavy always, per the design brief — even chasing a threat is well under a zombie's speed. */
+const GOLEM_DETECT_R = 15;
+const GOLEM_ATTACK_R = 2.5;
+const GOLEM_PATROL_SPEED = 0.6;
+const GOLEM_CHASE_SPEED = 1.3;
+const GOLEM_PATROL_RANGE = 14;
 const BOW_MIN = 5.5; // skeletons back off if the player is closer than this
 const BOW_MAX = 10; // ...and close in if farther than this
 const BOW_RANGE = 13;
@@ -495,28 +514,55 @@ export function updateMob(
    */
   if (mob.kind === 'guardian') {
     let target: Mob | null = null;
-    let best = 16;
+    let best = GOLEM_DETECT_R;
     for (const o of others ?? []) {
       if (o.dead || !HOSTILE.has(o.kind)) continue;
       const d = o.pos.distanceTo(mob.pos);
       if (d < best) { best = d; target = o; }
     }
     let gmove = new THREE.Vector2();
+    let speed = GOLEM_PATROL_SPEED;
     if (target) {
       const to = new THREE.Vector2(target.pos.x - mob.pos.x, target.pos.z - mob.pos.z);
-      if (to.length() > 1.6) gmove = to.clone().normalize();
+      speed = GOLEM_CHASE_SPEED;
+      if (to.length() > GOLEM_ATTACK_R) gmove = to.clone().normalize();
       else if (mob.attackCooldown <= 0) {
         hitMob(target, 12, to.clone().normalize(), isSolid);
         mob.attackCooldown = 1.4;
-        mob.parts.rightArm.rotation.x = -1.6;
+        // The "slam": both arms come up and crash down together, rather
+        // than one arm flicking like a punch — this is meant to read as
+        // heavy, not fast.
+        mob.parts.rightArm.rotation.x = -2.4;
+        mob.parts.leftArm.rotation.x = -2.4;
       }
     } else {
-      // Patrol slowly around its post.
-      const to = new THREE.Vector2(mob.home.x - mob.pos.x, mob.home.y - mob.pos.z);
-      if (to.length() > 3) gmove = to.normalize().multiplyScalar(0.5);
+      /*
+       * Patrol: wander slowly within a radius of its post — not "walk to
+       * the post, then stop", which is what this used to do. `gmove` only
+       * ever got set here while the golem was more than 3 blocks from
+       * home; the instant it arrived, `gmove` stayed the zero vector
+       * forever (nothing else in this branch could change it), so a golem
+       * with no threat nearby — which in practice is almost all the time —
+       * just stood completely still at its post. That's "the police isn't
+       * moving": it wasn't stuck, it had simply arrived and had no further
+       * instructions.
+       */
+      const toWander = new THREE.Vector2(mob.wanderTarget.x - mob.pos.x, mob.wanderTarget.y - mob.pos.z);
+      if (toWander.length() < 0.8 || Math.random() < 0.003) {
+        mob.wanderTarget.set(
+          mob.home.x + (Math.random() - 0.5) * GOLEM_PATROL_RANGE,
+          mob.home.y + (Math.random() - 0.5) * GOLEM_PATROL_RANGE,
+        );
+      }
+      const toNow = new THREE.Vector2(mob.wanderTarget.x - mob.pos.x, mob.wanderTarget.y - mob.pos.z);
+      if (toNow.length() > 0.3) gmove = toNow.normalize();
     }
-    applyMove(mob, gmove, dt, 1.5, heightAt, isSolid);
-    mob.parts.rightArm.rotation.x *= 0.9;
+    // Slow and heavy, per the brief: patrol is barely a stroll, and even
+    // closing in on a threat is a fraction of a zombie's chase speed — the
+    // golem should read as unstoppable, not fast.
+    applyMove(mob, gmove, dt, speed, heightAt, isSolid);
+    mob.parts.rightArm.rotation.x *= 0.85;
+    mob.parts.leftArm.rotation.x *= 0.85;
     return;
   }
 
@@ -530,7 +576,10 @@ export function updateMob(
   // Hostiles prefer whichever is closer: the player, or a villager.
   if (HOSTILE.has(mob.kind) && others) {
     for (const o of others) {
-      if (o.dead || o.kind !== 'villager') continue;
+      // Asleep (indoors, invisible) villagers are out of reach — a hostile
+      // "attacking" one would either hit an empty spot or damage someone
+      // the player can't see get hurt, neither of which reads as sensible.
+      if (o.dead || o.kind !== 'villager' || o.sleeping) continue;
       const d = o.pos.distanceTo(mob.pos);
       if (d < dist) {
         dist = d;
@@ -542,6 +591,24 @@ export function updateMob(
   }
 
   const aggro = !PEACEFUL.has(mob.kind) && isNight && dist < AGGRO_R;
+
+  /*
+   * Villagers are afraid of hostiles — find the nearest active (visible)
+   * one within a fright radius. This has to override everything else a
+   * villager would otherwise be doing (day wander, heading home, even
+   * already being asleep), which is why it's computed up here rather than
+   * folded into one of the branches below.
+   */
+  const FEAR_R = 8;
+  let fearThreat: Mob | null = null;
+  let fearD = FEAR_R;
+  if (mob.kind === 'villager' && others) {
+    for (const o of others) {
+      if (o.dead || !HOSTILE.has(o.kind) || !o.group.visible) continue;
+      const d = o.pos.distanceTo(mob.pos);
+      if (d < fearD) { fearD = d; fearThreat = o; }
+    }
+  }
 
   let move = new THREE.Vector2();
   if (aggro && mob.kind === 'skeleton') {
@@ -564,25 +631,54 @@ export function updateMob(
       if (aimAtPlayer) onAttack(mob.kind === 'zombie' ? 2 : 1);
       mob.attackCooldown = 1.1;
     }
+  } else if (fearThreat) {
+    // Run straight away from whatever's closest — a villager fleeing
+    // should read as fleeing, not as "wandering in a direction that
+    // happens to point away". Overrides sleep too: a threat showing up
+    // outside is not the moment to stay tucked in bed.
+    const away = new THREE.Vector2(mob.pos.x - fearThreat.pos.x, mob.pos.z - fearThreat.pos.z);
+    if (away.lengthSq() > 1e-6) move = away.normalize();
+    if (mob.sleeping) { mob.sleeping = false; mob.group.visible = true; }
+    // Fear resets the wander target too, so the instant the threat clears
+    // the villager doesn't lurch back toward wherever it was heading
+    // before it started running.
+    mob.wanderTarget.set(mob.pos.x, mob.pos.z);
   } else if (mob.kind === 'villager' && isNight && !mob.indoor) {
     /*
-     * Head home after dark instead of standing out in the open — but once
-     * actually home, this used to leave `move` at its default zero vector
-     * with nothing else in this branch to replace it, so the villager just
-     * stopped dead for the rest of the night: no wander, no idle animation,
-     * arms and legs locked wherever they last were. That's indistinguishable
-     * from a stuck/broken mob. A tiny idle shuffle within a block and a half
-     * of home reads as "waiting", not "frozen".
+     * Head home after dark, then go all the way to the actual bed inside
+     * and disappear into it — not just walk to the doorstep and idle-shuffle
+     * there all night. A villager idly pacing outside its own front door
+     * from dusk to dawn doesn't read as "safely home", it reads as "AI
+     * still running with nowhere to go". Vanishing into the cottage once it
+     * reaches the bed is a deliberate stand-in for a sleep animation this
+     * engine doesn't have a rig for.
      */
     const to = new THREE.Vector2(mob.home.x - mob.pos.x, mob.home.y - mob.pos.z);
-    if (to.length() > 1.2) move = to.normalize().multiplyScalar(0.8);
-    else if (Math.random() < 0.01) {
+    if (to.length() > 1.2) {
+      move = to.normalize().multiplyScalar(0.8);
+    } else if (mob.sleepPos) {
+      const toBed = new THREE.Vector2(mob.sleepPos.x - mob.pos.x, mob.sleepPos.y - mob.pos.z);
+      if (toBed.length() > 0.35) {
+        move = toBed.normalize().multiplyScalar(0.6);
+      } else {
+        mob.sleeping = true;
+        mob.group.visible = false;
+      }
+    } else if (Math.random() < 0.01) {
+      // No bed on record (shouldn't normally happen) — fall back to the old idle shuffle by the door.
       mob.wanderTarget.set(mob.home.x + (Math.random() - 0.5) * 1.4, mob.home.y + (Math.random() - 0.5) * 1.4);
     } else {
       const toIdle = new THREE.Vector2(mob.wanderTarget.x - mob.pos.x, mob.wanderTarget.y - mob.pos.z);
       if (toIdle.length() > 0.15) move = toIdle.normalize().multiplyScalar(0.15);
     }
   } else {
+    // Daybreak: anyone who was asleep wakes up and reappears where they
+    // turned in, rather than staying invisible forever once night passes.
+    if (mob.sleeping) {
+      mob.sleeping = false;
+      mob.group.visible = true;
+      if (mob.sleepPos) mob.pos.set(mob.sleepPos.x, mob.pos.y, mob.sleepPos.y);
+    }
     const toTarget = new THREE.Vector2(mob.wanderTarget.x - mob.pos.x, mob.wanderTarget.y - mob.pos.z);
     if (toTarget.length() < 0.6 || Math.random() < 0.002) {
       // Villagers wander around their home, animals roam freely.
@@ -597,7 +693,12 @@ export function updateMob(
     }
   }
 
-  applyMove(mob, move, dt, SPEED * (aggro ? 1 : 0.45), heightAt, isSolid);
+  // Fleeing is deliberately faster than the normal wander pace (panic,
+  // not a stroll) but still well under a chasing zombie's speed — a
+  // villager should be able to put some distance between itself and a
+  // threat, not necessarily outrun one outright.
+  const speedMul = aggro ? 1 : fearThreat ? 0.85 : 0.45;
+  applyMove(mob, move, dt, SPEED * speedMul, heightAt, isSolid);
 }
 
 /**

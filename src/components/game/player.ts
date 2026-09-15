@@ -85,6 +85,10 @@ export type PlayerController = {
   teleport: (x: number, z: number, fromY?: number) => void;
   swordGroup: THREE.Group;
   swing: () => void;
+  /** Shoves the player horizontally — a unit direction plus a strength. See the implementation for why this can't just be added to velocity directly. */
+  applyKnockback: (dirX: number, dirZ: number, strength: number) => void;
+  /** Toggles the held flashlight on/off ('T' in Game.tsx); returns the new state. */
+  toggleTorch: () => boolean;
   isSwimming: () => boolean;
   /** True when the player is actually walking, for footstep timing. */
   isMoving: () => boolean;
@@ -97,34 +101,176 @@ export type PlayerController = {
 };
 
 /**
+ * A torch prop — used both as the camera-child held item (first person) and
+ * as a smaller copy attached to the avatar's off-hand (third person). A
+ * function rather than a single shared mesh because camera-local space and
+ * avatar-arm-local space are different scales/coordinate systems; each
+ * caller gets its own instance, sized and placed for where it's mounted.
+ *
+ * Redesigned from a wooden stick with a flame on top into an actual
+ * flashlight: a cylindrical body held level and pointing straight ahead,
+ * with a lens on the front end — a modern hand torch, not a medieval one.
+ * Built extending along -Z, so "forward" here already matches the camera's
+ * own forward axis and mounting it takes little more than a position offset.
+ */
+function buildTorchProp(): { group: THREE.Group; lensMat: THREE.MeshBasicMaterial } {
+  const g = new THREE.Group();
+  /*
+   * Unlit, same reasoning as the sword: this prop sits only a few
+   * centimetres from its own PointLight (see buildHeldTorch), and a
+   * shaded material that close to a bright light source blows out to
+   * white — the "torch is glowing" half of the same bug the sword had.
+   * A held flashlight's barrel isn't something the player needs to see
+   * shaded by scene lighting anyway.
+   */
+  const body = new THREE.MeshBasicMaterial({ color: 0x2b2e31 });
+  const grip = new THREE.MeshBasicMaterial({ color: 0x1a1c1e });
+  const rimMat = new THREE.MeshBasicMaterial({ color: 0x8a8f94 });
+  const lensMat = new THREE.MeshBasicMaterial({ color: 0xfff6da });
+  const buttonMat = new THREE.MeshBasicMaterial({ color: 0xc23b2e });
+
+  // Barrel: the main cylindrical body, pointing forward (-Z).
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.046, 0.3, 12), body);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.z = -0.15;
+  g.add(barrel);
+
+  // A slightly thicker grip section at the back, textured with a couple of
+  // grooves (thin rings) so it doesn't read as one plain tube.
+  const gripMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.048, 0.16, 12), grip);
+  gripMesh.rotation.x = Math.PI / 2;
+  gripMesh.position.z = 0.06;
+  g.add(gripMesh);
+  for (const gz of [0.02, 0.1]) {
+    const groove = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.006, 6, 12), rimMat);
+    groove.position.z = gz;
+    g.add(groove);
+  }
+
+  // A small power button on top of the grip.
+  const button = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.012, 8), buttonMat);
+  button.position.set(0, 0.05, 0.06);
+  g.add(button);
+
+  // The head: a wider rim around the lens, and the glowing lens itself.
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.043, 0.05, 12), rimMat);
+  head.rotation.x = Math.PI / 2;
+  head.position.z = -0.325;
+  g.add(head);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.046, 12), lensMat);
+  lens.position.z = -0.351;
+  g.add(lens);
+
+  return { group: g, lensMat };
+}
+
+/**
+ * The held torch: the sword occupies the right hand, so this is the other
+ * one — a camera-child mesh mirrored to the left side of frame, plus a
+ * PointLight that travels with the player. Unlike every other light in the
+ * game, this one isn't part of the shared torch pool (see torches.ts) and
+ * isn't reassigned or budget-limited — it's the player's own light, so it
+ * has to stay on regardless of how many world torches are nearby, which is
+ * the whole point of carrying one into a dark forest or an unlit beach.
+ *
+ * Intensity was 1.3 against a world torch's peak of 12 — roughly a tenth as
+ * bright, which is why "the torch I'm holding" didn't actually seem to light
+ * anything: it was barely doing more than the ambient night light already
+ * was. Brought up to be genuinely the brightest thing near the player, on
+ * the reasoning that a torch you're holding at arm's length should light
+ * your immediate surroundings better than one bolted to a wall ten blocks
+ * away, not worse.
+ */
+function buildHeldTorch(): { group: THREE.Group; light: THREE.PointLight; lensMat: THREE.MeshBasicMaterial } {
+  const { group, lensMat } = buildTorchProp();
+  group.scale.setScalar(0.95);
+  group.position.set(-0.3, -0.26, -0.55);
+  group.rotation.set(-0.05, 0.16, 0);
+
+  const light = new THREE.PointLight(0xfff0d0, 13, 11, 1.5);
+  // At the lens, roughly — the light was never actually positioned before
+  // (it defaulted to the camera's own local origin, i.e. the player's eye),
+  // which is also not where a flashlight's beam should originate from.
+  light.position.set(-0.35, -0.28, -0.9);
+  return { group, light, lensMat };
+}
+
+/**
  * A camera-child sword. The classic first-person weapon trick: the blade
  * lives inside the camera's local space, at the bottom right of the frame,
  * so it turns with the view for free and never needs its own camera pass.
+ *
+ * Rebuilt from a plain hilt-guard-blade stack (no pommel, a guard barely
+ * wider than the grip, and a blunt two-step taper) into something with an
+ * actual silhouette: a pommel to balance the bottom, a proper crossguard
+ * that reads as a cross rather than a collar, a wrapped-looking grip, and a
+ * three-step taper to a real point with a fuller (the groove down a real
+ * blade's centre) for surface detail instead of a flat slab of steel.
  */
 function buildSword(): THREE.Group {
   const g = new THREE.Group();
-  const wood = new THREE.MeshLambertMaterial({ color: 0x5a3f26 });
-  const steel = new THREE.MeshLambertMaterial({ color: 0xcfd3d8 });
-  const guardMat = new THREE.MeshLambertMaterial({ color: 0x8a8d92 });
-
-  const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.24, 0.06), wood);
-  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 0.07), guardMat);
-  guard.position.y = 0.14;
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.5, 0.032), steel);
-  blade.position.y = 0.42;
   /*
-   * The tip. The blade used to be a single box, so it ended in a flat cut —
-   * it read as a bar of metal rather than a sword. Two stacked, shrinking
-   * boxes give the stepped taper a blocky world wants, without a custom
-   * geometry.
+   * MeshBasicMaterial, not MeshLambertMaterial — deliberately unlit. The
+   * held torch's PointLight sits only a third of a block away from this
+   * viewmodel (see buildHeldTorch), and a lit material that close to a
+   * bright point light blows out to solid white well before the inverse-
+   * square falloff has any chance to look reasonable — that's the "sword
+   * is glowing" bug. The fix isn't to keep tuning the light's numbers
+   * around this one mesh; it's that a first-person viewmodel doesn't need
+   * to react to scene lighting at all, the way most games render theirs
+   * with fixed or simplified lighting for exactly this reason. Unlit here
+   * means the sword always renders at its own true colour, immune to the
+   * torch, moonlight, a nearby lamp, or anything else that might otherwise
+   * sit inches from it.
    */
-  const tip1 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.032), steel);
-  tip1.position.y = 0.705;
-  const tip2 = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.06, 0.032), steel);
-  tip2.position.y = 0.77;
+  const grip = new THREE.MeshBasicMaterial({ color: 0x3a2a1a });
+  const wrap = new THREE.MeshBasicMaterial({ color: 0x241a10 });
+  const brass = new THREE.MeshBasicMaterial({ color: 0xc9a227 });
+  const steel = new THREE.MeshBasicMaterial({ color: 0xe4e8ec });
+  const darkSteel = new THREE.MeshBasicMaterial({ color: 0x7a828a });
 
-  g.add(hilt, guard, blade, tip1, tip2);
-  g.scale.setScalar(0.58);
+  // Pommel: weights the bottom of the hilt so the silhouette doesn't just
+  // stop dead at the grip.
+  const pommel = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.09), brass);
+  pommel.position.y = -0.02;
+  g.add(pommel);
+
+  // Grip, with two darker wrap bands rather than one flat-coloured box.
+  const gripMesh = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.22, 0.065), grip);
+  gripMesh.position.y = 0.1;
+  g.add(gripMesh);
+  for (const y of [0.05, 0.16]) {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.025, 0.072), wrap);
+    band.position.y = y;
+    g.add(band);
+  }
+
+  // Crossguard: wide and thin, so it actually reads as a cross against the
+  // blade rather than a slightly-fatter bit of the handle.
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.09), brass);
+  guard.position.y = 0.225;
+  g.add(guard);
+  const guardCenter = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.1), brass);
+  guardCenter.position.y = 0.235;
+  g.add(guardCenter);
+
+  // Blade: three tapering segments (base → mid → point) instead of two, for
+  // a genuine point rather than a stepped stub, plus a fuller — a thin,
+  // slightly darker groove down the centre — so the flat face reads as a
+  // forged blade rather than a painted bar of metal.
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.32, 0.034), steel);
+  base.position.y = 0.42;
+  const mid = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.03), steel);
+  mid.position.y = 0.66;
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.09, 0.024), steel);
+  tip.position.y = 0.785;
+  g.add(base, mid, tip);
+
+  const fuller = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.42, 0.008), darkSteel);
+  fuller.position.set(0, 0.5, 0.02);
+  g.add(fuller);
+
+  g.scale.setScalar(0.62);
   g.position.set(0.33, -0.30, -0.78);
   g.rotation.set(0.18, -0.2, 0.42);
   return g;
@@ -195,7 +341,34 @@ export function createPlayerController(
   const swordGroup = buildSword();
   camera.add(swordGroup);
 
+  const heldTorch = buildHeldTorch();
+  camera.add(heldTorch.group);
+  camera.add(heldTorch.light);
+  let torchOn = true;
+  const lensOnColor = heldTorch.lensMat.color.clone();
+  /** Toggled by the 'T' key (Game.tsx) — off means dark (no light, dim lens), not "put away". */
+  function toggleTorch(): boolean {
+    torchOn = !torchOn;
+    heldTorch.light.visible = torchOn;
+    avatarTorchProp.lensMat.color.copy(torchOn ? lensOnColor : new THREE.Color(0x2a2620));
+    heldTorch.lensMat.color.copy(torchOn ? lensOnColor : new THREE.Color(0x2a2620));
+    return torchOn;
+  }
+
   const avatar = buildAvatar();
+  // Third-person's copy of the same torch, sized for the avatar's arm rather
+  // than camera-local space — parented to the left arm so it swings with it
+  // exactly like the sword conceptually would on the right.
+  const avatarTorchProp = buildTorchProp();
+  const avatarTorch = avatarTorchProp.group;
+  avatarTorch.scale.setScalar(0.85);
+  avatarTorch.position.set(0, -0.58, 0.06);
+  // The prop now points forward (-Z) by default rather than up, since it's
+  // a flashlight rather than a torch with the flame on top — tilted down
+  // from the lowered arm so the beam still reads as pointing out and ahead
+  // rather than straight down at the villager's own feet.
+  avatarTorch.rotation.x = -1.15;
+  avatar.arms[0].add(avatarTorch);
   /*
    * Third-person is a camera offset, not a second camera. PointerLockControls
    * owns the camera's rotation either way; all that changes is where the
@@ -218,6 +391,17 @@ export function createPlayerController(
   /** Feet position. The camera is derived from this, never the other way round. */
   const feet = new THREE.Vector3(spawn.x, spawn.y, spawn.z);
   const vel = new THREE.Vector3();
+  /**
+   * A separate, decaying impulse for "something just hit me" knockback.
+   * `vel.x`/`vel.z` are overwritten from input every frame (`vel.x = wish.x`
+   * below) rather than integrated, so simply adding a shove to `vel` would
+   * vanish the instant `update()` next read the keyboard — there was no way
+   * for a hit to actually move the player at all under the old scheme. This
+   * is added on top of `vel` each frame instead, and decays on its own, so a
+   * hit shoves the player regardless of what they're pressing and fades out
+   * over a few frames rather than being an on/off snap.
+   */
+  const knockback = new THREE.Vector3();
   let grounded = false;
   let swingT = 0;
   let walkPhase = 0;
@@ -353,6 +537,19 @@ export function createPlayerController(
     vel.x = wish.x;
     vel.z = wish.z;
 
+    // The knockback impulse rides on top of whatever the player's own input
+    // wanted this frame, and bleeds off exponentially — fast enough to feel
+    // like a shove, not a loss of control for a full second.
+    if (knockback.lengthSq() > 0.0004) {
+      vel.x += knockback.x;
+      vel.z += knockback.z;
+      const decay = Math.max(0, 1 - dt * 7);
+      knockback.x *= decay;
+      knockback.z *= decay;
+    } else {
+      knockback.set(0, 0, 0);
+    }
+
     /*
      * Substep so no single move exceeds half a block. A collision test that
      * only samples the end position is valid only while the step is smaller
@@ -415,6 +612,7 @@ export function createPlayerController(
     }
     avatar.group.visible = thirdPerson;
     swordGroup.visible = !thirdPerson;
+    heldTorch.group.visible = !thirdPerson;
 
     if (swingT > 0) {
       swingT = Math.max(0, swingT - dt * 5);
@@ -428,6 +626,18 @@ export function createPlayerController(
     swingT = 1;
   }
 
+  /**
+   * Shoves the player horizontally — `dirX`/`dirZ` should be a unit vector
+   * pointing away from whatever hit them. Called from Game.tsx's
+   * `takeDamage`, so a zombie's claw or a skeleton's arrow actually moves
+   * the player, rather than just docking health while they stand rooted to
+   * the spot the way the old flash-only feedback did.
+   */
+  function applyKnockback(dirX: number, dirZ: number, strength: number) {
+    knockback.x += dirX * strength;
+    knockback.z += dirZ * strength;
+  }
+
   /** Drops the player at a column, from just above it, and lets gravity settle them. */
   function teleport(x: number, z: number, fromY: number = spawn.y) {
     feet.set(x, fromY, z);
@@ -435,6 +645,7 @@ export function createPlayerController(
     let guard = 0;
     while (blocked(feet.x, feet.y, feet.z) && guard++ < 64) feet.y += 1;
     vel.set(0, 0, 0);
+    knockback.set(0, 0, 0);
     camera.position.set(feet.x, feet.y + EYE, feet.z);
   }
 
@@ -443,6 +654,8 @@ export function createPlayerController(
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);
     camera.remove(swordGroup);
+    camera.remove(heldTorch.group);
+    camera.remove(heldTorch.light);
   }
 
   // Settle onto the ground at spawn rather than trusting the caller's Y.
@@ -456,6 +669,8 @@ export function createPlayerController(
     teleport,
     swordGroup,
     swing,
+    applyKnockback,
+    toggleTorch,
     isSwimming: submerged,
     isMoving: () => wish.lengthSq() > 0.01 && grounded,
     avatar: avatar.group,

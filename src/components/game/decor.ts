@@ -114,7 +114,46 @@ export function buildCanopyBed(x: number, y: number, z: number): THREE.Group {
   return g;
 }
 
-/** A small canvas of colour-blocked "book spines" for the bookshelf's front face. */
+/**
+ * A plain single bed — no canopy, no posts — sized for a village cottage
+ * rather than the player's own great room. Same calling convention as
+ * `buildCanopyBed` (x, y, z is the floor anchor, headboard toward -Z).
+ *
+ * This is the piece that was actually missing from every cottage: the
+ * house's bed has always been paired with `buildCanopyBed` for the visible
+ * mesh, but cottages only ever placed the underlying BEDRED/BEDWHITE voxel
+ * cells — and those are deliberately invisible in the world mesh (see
+ * `MESH_INVISIBLE` in world.ts, added so the *player's* fancy bed mesh
+ * wasn't fighting with a pair of solid-coloured cubes underneath it). With
+ * no mesh standing in for them, a cottage's bed cells being invisible meant
+ * there was, visibly, no bed there at all.
+ */
+export function buildSimpleBed(x: number, y: number, z: number): THREE.Group {
+  const g = new THREE.Group();
+  const frame = new THREE.MeshLambertMaterial({ color: MID_WOOD });
+  const cloth = new THREE.MeshLambertMaterial({ color: 0x8a3a35 });
+  const pillowMat = new THREE.MeshLambertMaterial({ color: 0xe4ddcc });
+
+  const base = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.12, 1.9), frame);
+  base.position.y = 0.24;
+  const mattress = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.24, 1.75), cloth);
+  mattress.position.y = 0.42;
+  const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.14, 0.42), pillowMat);
+  pillow.position.set(0, 0.6, -0.62);
+  const headboard = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 0.1), frame);
+  headboard.position.set(0, 0.62, -0.93);
+  g.add(base, mattress, pillow, headboard);
+
+  for (const [lx, lz] of [[-0.42, -0.82], [0.42, -0.82], [-0.42, 0.82], [0.42, 0.82]] as const) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.12), frame);
+    leg.position.set(lx, 0.1, lz);
+    g.add(leg);
+  }
+
+  g.position.set(x, y, z);
+  g.traverse((o) => { o.castShadow = true; });
+  return g;
+}
 function paintBooks(rows: number, cols: number): THREE.CanvasTexture {
   const W = 256;
   const H = 256;

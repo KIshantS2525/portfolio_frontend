@@ -124,7 +124,7 @@ export default function Game() {
     ].filter((v): v is [string, string] => Boolean(v));
   }, [openProject]);
 
-  const takeDamage = useCallback((dmg: number) => {
+  const takeDamage = useCallback((dmg: number, source?: THREE.Vector3) => {
     hpRef.current = Math.max(0, hpRef.current - dmg);
     setHp(hpRef.current);
     const flash = flashRef.current;
@@ -133,6 +133,17 @@ export default function Game() {
       window.setTimeout(() => { if (flash) flash.style.opacity = '0'; }, 160);
     }
     audioRef.current?.hurt();
+    // Getting hit should physically move the player, not just dock a heart
+    // silently — same feedback set every mob's own hit gets (flash, sound,
+    // knockback), just aimed the other way. `source` is the attacker's
+    // position when known (every real hit has one); push straight away from it.
+    const controller = controllerRef.current;
+    if (controller && source) {
+      const dx = controller.feet.x - source.x;
+      const dz = controller.feet.z - source.z;
+      const len = Math.hypot(dx, dz) || 1;
+      controller.applyKnockback(dx / len, dz / len, 3.2);
+    }
     if (hpRef.current <= 0) {
       setDead(true);
       /*
@@ -280,7 +291,18 @@ export default function Game() {
         window.devicePixelRatio > 2.5 || window.innerWidth < 900 ? 'low' : 'high';
 
       const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(72, el.clientWidth / el.clientHeight, 0.1, 220);
+      /*
+       * Far plane trimmed from 220 to 170: the exponential fog (density
+       * 0.012, set in dayNight.ts) already reduces visibility to a few
+       * percent well before 170 — at 220 the renderer was still submitting
+       * and rasterising chunk geometry that fog had already made
+       * practically invisible. Long, open sightlines (across water, or
+       * from high ground looking back over the island) are exactly where
+       * this mattered: the more of the map a view could see at once, the
+       * more of that "rendering fog" was wasted GPU work rather than
+       * cropping anything actually visible.
+       */
+      const camera = new THREE.PerspectiveCamera(72, el.clientWidth / el.clientHeight, 0.1, 170);
 
       // Villagers pick their outfit from a module-level counter in mobs.ts;
       // reset it here so every fresh world (including a remount after
@@ -299,7 +321,7 @@ export default function Game() {
       audioRef.current = audio;
 
       const torches = new Torches(scene);
-      for (const t of world.torchSpots) torches.add(t.x, t.y, t.z);
+      for (const t of world.torchSpots) torches.add(t.x, t.y, t.z, t.style);
 
       const postfx: PostFX = createPostFX(renderer, scene, camera, el.clientWidth, el.clientHeight, quality);
       postfxRef.current = postfx;
@@ -347,8 +369,8 @@ export default function Game() {
         scene.add(mob.group);
         scene.add(mob.hpBar);
       });
-      const addMob = (kind: MobKind, x: number, z: number, hidden = false) => {
-        const mob = spawnMob(kind, x, z, world.heightAt(x, z) + 1);
+      const addMob = (kind: MobKind, x: number, z: number, hidden = false, y?: number) => {
+        const mob = spawnMob(kind, x, z, y ?? world.heightAt(x, z) + 1);
         mob.group.visible = !hidden;
         mobs.push(mob);
         scene.add(mob.group);
@@ -370,13 +392,33 @@ export default function Game() {
       ring(6, 18, 0.3, (x, z) => addMob('sheep', x, z));
       ring(5, 24, 1.1, (x, z) => addMob('pig', x, z));
 
-      // One villager per cottage doorstep, plus a guardian posted in the middle.
-      world.village.forEach((v) => addMob('villager', v.x, v.z));
+      // One villager per cottage doorstep, with a bed inside to retreat to
+      // at night, plus two guardians posted to protect the village and two
+      // more posted at the player's own house.
+      world.village.forEach((v) => {
+        // Spawned at the cottage's own known floor height (`groundY`), not
+        // `heightAt(x, z) + 1` — a roofed building is exactly the case
+        // `heightAt` gets wrong: scanning down from the sky for the first
+        // solid block finds the *roof*, not the floor underneath it, which
+        // is how villagers kept ending up spawned standing on their own
+        // cottage's roof instead of at the door.
+        const villager = addMob('villager', v.x, v.z, false, v.groundY);
+        villager.sleepPos = new THREE.Vector2(v.bedPos.x, v.bedPos.z);
+      });
       if (world.village.length) {
         const mx = world.village.reduce((a, v) => a + v.x, 0) / world.village.length;
         const mz = world.village.reduce((a, v) => a + v.z, 0) / world.village.length;
-        addMob('guardian', mx, mz);
+        // Two posts a few blocks apart rather than stacking both guardians
+        // on the exact same spot — each patrols its own little territory
+        // around the village centre instead of moving as a single unit.
+        addMob('guardian', mx - 4, mz - 3);
+        addMob('guardian', mx + 4, mz + 3);
       }
+      // Two more stationed right at the house — one either side of the
+      // gate, so "protect the safe zone" covers home as well as the village.
+      const houseGateZ = world.house.cz + world.house.half + 3;
+      addMob('guardian', world.house.cx - 5, houseGateZ);
+      addMob('guardian', world.house.cx + 5, houseGateZ);
 
       // The one resident of the house — wanders the great room floor
       // (`guideHome`, dead centre) and is who the chat panel talks to.
@@ -406,6 +448,37 @@ export default function Game() {
       const forward2 = new THREE.Vector3();
       const dir2 = new THREE.Vector3();
       const bubbleVec = new THREE.Vector3();
+      const lookDir = new THREE.Vector3();
+
+      /**
+       * Ray-sphere hit test, returning the distance along the ray to the
+       * intersection (or null for a miss / behind the camera). `dir` must
+       * be a unit vector. Used below so "what can I interact with" is
+       * whatever's actually under the crosshair, not whatever happens to
+       * be nearest the player's feet in open 3D space — the two used to
+       * disagree constantly once the gallery had more than a handful of
+       * plaques close together (a plaque one row up could be "nearer" by
+       * straight-line distance than the one you're actually looking at).
+       */
+      function raySphere(origin: THREE.Vector3, dir: THREE.Vector3, center: THREE.Vector3, radius: number): number | null {
+        const ocx = origin.x - center.x;
+        const ocy = origin.y - center.y;
+        const ocz = origin.z - center.z;
+        const b = ocx * dir.x + ocy * dir.y + ocz * dir.z;
+        const c = ocx * ocx + ocy * ocy + ocz * ocz - radius * radius;
+        const disc = b * b - c;
+        if (disc < 0) return null;
+        const t = -b - Math.sqrt(disc);
+        // A negative entry point means the sphere's near face is behind the
+        // camera — which is also exactly what happens when the camera is
+        // standing *inside* the sphere (close enough to a big interactable,
+        // the bed especially, that the eye is past its near surface). `c < 0`
+        // is precisely that case, and it's a hit, not a miss: being close
+        // enough to be inside the thing you're trying to interact with
+        // should never be the one position that fails the crosshair check.
+        if (t < 0) return c < 0 ? 0 : null;
+        return t;
+      }
 
       let mining = false;
       let mineTarget: THREE.Vector3 | null = null;
@@ -494,6 +567,10 @@ export default function Game() {
           setThirdPerson(controller.toggleView());
         }
 
+        if (e.code === 'KeyT' && controller.controls.isLocked) {
+          controller.toggleTorch();
+        }
+
         if (e.code === 'KeyE') {
           // One context-sensitive key, resolved against whatever is nearest,
           // rather than a separate binding per piece of furniture.
@@ -524,6 +601,9 @@ export default function Game() {
 
       let raf = 0;
       let warmupFrames = 0;
+      let readySet = false;
+      /** Flips once every chunk on the island has been built — see the loop, and the readiness gate below. */
+      let mapLoaded = false;
       let last = performance.now();
       const loop = () => {
         raf = requestAnimationFrame(loop);
@@ -532,13 +612,28 @@ export default function Game() {
         last = now;
 
         /*
-       * Two chunks a frame once playing. Enough that the horizon fills in as
-       * you walk without the per-frame meshing cost showing up as stutter —
-       * the whole reason the terrain is streamed rather than built in one go.
-       */
-      world.updateStreaming(camera.position.x, camera.position.z, 3);
+         * `VIEW_CHUNKS` is generous enough that, from anywhere near the
+         * middle of the map (spawn included), every chunk on the island
+         * counts as "wanted" from frame one — this was never really a
+         * streaming radius that shrinks what's loaded, just a staged
+         * build-it-once budget. The bug was in how that staging worked: the
+         * loading screen only primed a `budget: 25` burst near spawn and
+         * then hid itself after two rendered frames — unconditionally, not
+         * "once the map is actually built". Whatever didn't finish in that
+         * first burst (most of the island, in practice) was left to stream
+         * in during real gameplay at a trickle of 4 chunks a frame, and
+         * since players start moving the instant control is handed to them,
+         * that trickle reliably landed right on top of "I just started
+         * running" — which is exactly the lag being reported. Now the loop
+         * keeps building at a fast clip *before* `ready` ever flips true, so
+         * the loading screen simply stays up until there's nothing left to
+         * stream — meaning there's nothing left to stutter on once you can
+         * actually move.
+         */
+        const stream = world.updateStreaming(camera.position.x, camera.position.z, mapLoaded ? 2 : 24);
+        if (!mapLoaded && stream.ready >= stream.total) mapLoaded = true;
 
-      dayNight.update(dt, camera.position);
+        dayNight.update(dt, camera.position);
         torches.update(dt, camera.position, dayNight.factor, now / 1000);
       world.water.update(now / 1000, camera.position, dayNight.skyTint, dayNight.factor);
 
@@ -547,39 +642,44 @@ export default function Game() {
         const paused = !controller.controls.isLocked;
         if (!paused) controller.update(dt);
 
-        // Nearest interactable, checked against the player rather than the
-        // camera so looking away doesn't cancel a prompt you're standing on.
-        // `controller.feet` is the actual foot position — `camera.position`
-        // is eye height (and, in third person, up to 4.2 blocks further back
-        // still), which put every floor-level prompt out of range and made
-        // third person silently unable to interact with anything at all.
+        // What the crosshair is actually pointing at, not whatever's
+        // nearest the player's feet — see raySphere above. Each candidate
+        // is a sphere at roughly its own size; the winner is whichever the
+        // look-ray hits first (smallest distance along the ray), same
+        // logic as a real raycast, so overlapping candidates resolve the
+        // way looking at one of two overlapping objects actually should.
+        camera.getWorldDirection(lookDir);
         const feet = controller.feet;
         let found: Interaction = null;
-        let bestD = INTERACT_R;
-        const bedD = feet.distanceTo(world.house.bedPos);
-        if (bedD < bestD) { bestD = bedD; found = { kind: 'bed' }; }
+        let bestT = INTERACT_R + 1.2; // a little past INTERACT_R: the ray origin is the eye, not the feet
+        const tryHit = (center: THREE.Vector3, radius: number, make: () => NonNullable<Interaction>) => {
+          if (feet.distanceTo(center) > INTERACT_R + 1.5) return; // sanity cap, mainly for third-person's pulled-back camera
+          const t = raySphere(camera.position, lookDir, center, radius);
+          if (t !== null && t < bestT) { bestT = t; found = make(); }
+        };
+        tryHit(world.house.bedPos, 1.1, () => ({ kind: 'bed' }));
         // Chest and map were never added to this sweep at all — the modals
         // for both exist in the JSX and both are reachable in principle, but
         // interactRef could never actually become { kind: 'chest' | 'map' },
         // so neither panel could ever open.
+        tryHit(world.chestPos, 0.7, () => ({ kind: 'chest' }));
+        tryHit(world.mapPos, 0.7, () => ({ kind: 'map' }));
+        // Kept separate from the crosshair hit-test above: the chest's lid
+        // animation is ambient (it should pop open just from being nearby,
+        // the way the original design intended), not something that should
+        // require staring directly at it the way opening the panel does.
         const chestD = feet.distanceTo(world.chestPos);
-        if (chestD < bestD) { bestD = chestD; found = { kind: 'chest' }; }
-        const mapD = feet.distanceTo(world.mapPos);
-        if (mapD < bestD) { bestD = mapD; found = { kind: 'map' }; }
         // The guide moves, unlike everything else in this sweep, so its
-        // distance has to be recomputed from its live position every frame
-        // rather than a position baked in once at world-build time.
+        // position has to be read live every frame rather than a value
+        // baked in once at world-build time.
         if (guideRef.current && !guideRef.current.dead) {
-          const npcD = feet.distanceTo(guideRef.current.pos);
-          if (npcD < bestD) { bestD = npcD; found = { kind: 'npc' }; }
+          tryHit(guideRef.current.pos, 0.8, () => ({ kind: 'npc' }));
         }
         for (const b of world.boards) {
-          const d = feet.distanceTo(b.position);
-          if (d < bestD) {
+          tryHit(b.position, 0.55, () => {
             const proj = projects.find((p) => p.slug === b.slug);
-            bestD = d;
-            found = { kind: 'board', slug: b.slug, name: proj?.name ?? b.slug };
-          }
+            return { kind: 'board', slug: b.slug, name: proj?.name ?? b.slug };
+          });
         }
         setInteraction((prev) => {
           const same = prev?.kind === found?.kind
@@ -630,20 +730,43 @@ export default function Game() {
          * the player stops.
          */
         if (!paused) {
+          // Nearest active zombie/skeleton this frame, for the proximity
+          // sound cues below — sight alone wasn't enough warning on a map
+          // with trees and buildings blocking the view at night.
+          let nearestZombieD = Infinity;
+          let nearestSkeletonD = Infinity;
           for (const mob of mobsRef.current) {
             if (mob.kind === 'zombie' || mob.kind === 'skeleton') {
-              // Was `> 0.15`, which is true for most of the day — zombies and
-              // skeletons popped into view in the early evening well before it
-              // was actually dark, and once factor ticked past 0.15 on the
-              // first dusk they stayed visible even at noon the next day.
-              // `isNight` (> 0.5) is the same threshold everything else in the
-              // loop already keys hostility off.
-              mob.group.visible = isNight || mob.dead;
+              /*
+               * Was `isNight || mob.dead` — a blanket switch with no idea
+               * whether the mob was standing in the open or tucked under a
+               * tree canopy or a roof. Real shade should matter: a hostile
+               * that happened to end the night under cover can survive into
+               * the morning there rather than blinking out the instant the
+               * sun comes up, and only "burns" (disappears) once it's
+               * actually caught somewhere with open sky overhead. Scanning
+               * a handful of cells straight up is a cheap stand-in for a
+               * real sunlight raycast — cheap enough to run for every
+               * hostile, every frame, without it costing anything visible.
+               */
+              const shaded = !isNight && (() => {
+                const mx = Math.floor(mob.pos.x);
+                const mz = Math.floor(mob.pos.z);
+                for (let y = Math.floor(mob.pos.y) + 1; y <= Math.floor(mob.pos.y) + 8; y++) {
+                  if (world.isSolidAt(mx, y, mz)) return true;
+                }
+                return false;
+              })();
+              mob.group.visible = isNight || shaded || mob.dead;
             }
             if (!mob.group.visible) continue;
+            if (!mob.dead) {
+              if (mob.kind === 'zombie') nearestZombieD = Math.min(nearestZombieD, camera.position.distanceTo(mob.pos));
+              else if (mob.kind === 'skeleton') nearestSkeletonD = Math.min(nearestSkeletonD, camera.position.distanceTo(mob.pos));
+            }
             updateMob(
               mob, dt, camera.position, isNight, world.heightAt,
-              (dmg) => takeDamage(dmg),
+              (dmg) => takeDamage(dmg, mob.pos),
               (from, target) => {
                 const arrow = spawnArrow(from, target);
                 arrowsRef.current.push(arrow);
@@ -657,6 +780,9 @@ export default function Game() {
               world.isMobSolidAt,
             );
           }
+          const PROX_R = 16;
+          audio.zombieNear(dt, nearestZombieD === Infinity ? 0 : Math.max(0, 1 - nearestZombieD / PROX_R));
+          audio.skeletonNear(dt, nearestSkeletonD === Infinity ? 0 : Math.max(0, 1 - nearestSkeletonD / PROX_R));
 
           // Dead mobs used to stay in the array (and the scene) forever: the
           // death animation ran once, `updateMob` kept iterating and
@@ -674,7 +800,16 @@ export default function Game() {
           });
 
           arrowsRef.current = arrowsRef.current.filter((arrow) => {
-            const done = updateArrow(arrow, dt, camera.position, (dmg) => takeDamage(dmg), world.isMobSolidAt);
+            // For the knockback direction, a point behind the arrow along its
+            // own flight path — the arrow's position *at* the hit is nearly
+            // on top of the player by definition, which would give
+            // `takeDamage` a near-zero, noisy direction to normalize instead
+            // of "push back the way this arrow came from".
+            const done = updateArrow(
+              arrow, dt, camera.position,
+              (dmg) => takeDamage(dmg, arrow.pos.clone().addScaledVector(arrow.vel, -1)),
+              world.isMobSolidAt,
+            );
             if (done) scene.remove(arrow.mesh);
             return !done;
           });
@@ -754,13 +889,12 @@ export default function Game() {
 
         postfx.composer.render();
 
-        // Two rendered frames before revealing: the first triggers the last of
-        // the shader compiles, so lifting the overlay on frame one still shows
-        // a stutter.
-        if (warmupFrames < 2) {
-          warmupFrames++;
-          if (warmupFrames === 2) setReady(true);
-        }
+        // Two rendered frames before revealing (the first triggers the last
+        // of the shader compiles, so lifting the overlay on frame one still
+        // shows a stutter) — *and* the whole map actually finished streaming
+        // in, so nothing is left to build once the player can move.
+        if (warmupFrames < 2) warmupFrames++;
+        if (!readySet && warmupFrames >= 2 && mapLoaded) { readySet = true; setReady(true); }
       };
       raf = requestAnimationFrame(loop);
 
@@ -1001,7 +1135,7 @@ export default function Game() {
           <p className="t-heading-md text-bone">The island</p>
           <p className="voxel-hint max-w-[48ch]">
             WASD to walk · mouse to look · space to jump · shift to sprint · hold left-click to mine ·
-            right-click to place · 1–9 or scroll to pick a slot · C to switch view · E to read a board, open
+            right-click to place · 1–9 or scroll to pick a slot · C to switch view · T to toggle your torch · E to read a board, open
             the chest, check the map, talk to {NPC_NAME}, or sleep · pull the cord for night. Nothing you dig
             or build is saved.
           </p>

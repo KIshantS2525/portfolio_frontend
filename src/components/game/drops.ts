@@ -47,9 +47,11 @@ export function spawnDrop(
     block,
     mesh,
     pos: new THREE.Vector3(x, y, z),
-    // A small random pop, so several drops from one spot don't stack into one
-    // visually indistinguishable cube.
-    vel: new THREE.Vector3((Math.random() - 0.5) * 1.4, 2.2, (Math.random() - 0.5) * 1.4),
+    // A small random pop, so several drops from one spot don't stack into
+    // one visually indistinguishable cube. Was 2.2 on the vertical — a hard
+    // enough kick, on a 0.26-block cube, to read as a glitchy hop instead of
+    // an item settling out of the block it came from.
+    vel: new THREE.Vector3((Math.random() - 0.5) * 1.4, 1.1, (Math.random() - 0.5) * 1.4),
     age: 0,
     grounded: false,
   };
@@ -80,8 +82,29 @@ export function updateDrop(
   }
 
   if (drop.age > SPAWN_DELAY && dist < MAGNET) {
-    drop.vel.addScaledVector(toPlayer.normalize(), MAGNET_PULL * dt * (1 - dist / MAGNET));
-    drop.grounded = false;
+    /*
+     * This used to pull on all three axes — including vertically — the
+     * instant the player came within `MAGNET` blocks, even for an item that
+     * had already landed and settled. A resting drop would launch straight
+     * up off the ground the moment the player merely walked into range,
+     * well before they were anywhere near actually picking it up — which
+     * read exactly like "the block jumps at its place" for no reason.
+     * Horizontal pull still starts at the full magnet radius (that's the
+     * part that actually helps you collect items without standing exactly
+     * on them); the vertical lift only kicks in once the item isn't
+     * grounded, or the player is close enough that picking it up is
+     * imminent anyway.
+     */
+    const pull = toPlayer.clone().normalize();
+    const strength = MAGNET_PULL * dt * (1 - dist / MAGNET);
+    drop.vel.x += pull.x * strength;
+    drop.vel.z += pull.z * strength;
+    if (!drop.grounded || dist < PICKUP * 1.8) {
+      drop.vel.y += pull.y * strength;
+      drop.grounded = false;
+    } else {
+      drop.vel.y -= GRAVITY * dt;
+    }
   } else {
     drop.vel.y -= GRAVITY * dt;
   }

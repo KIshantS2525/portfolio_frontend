@@ -50,7 +50,7 @@ import { useAchievements, useProfile, useRoles } from '@/lib/useContent';
  * Metrics) is already eased over the scroll, so changing this number alone
  * keeps that transition smooth — nothing else needs adjusting for that.
  */
-const ASK_AI_GRAPH_SIZE_PERCENT = 140;
+const ASK_AI_GRAPH_SIZE_PERCENT = 150;
 
 /**
  * How long, in milliseconds, the "cited nodes" highlight takes to fade in
