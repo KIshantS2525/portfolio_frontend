@@ -1,7 +1,7 @@
 // src/components/game/world.ts
 import * as THREE from 'three';
 import { Block, TRANSPARENT, tilesFor, uvRect, buildAtlas, DROP_FOR } from '@/components/game/blocks';
-import { paintSign } from '@/components/game/noticeBoard';
+import { paintSign, paintSignTitle } from '@/components/game/noticeBoard';
 import { Water } from '@/components/game/water';
 import { Chest, MapBoard } from '@/components/game/props';
 import type { Project, Profile } from '@/lib/content';
@@ -26,7 +26,7 @@ const CHUNKS_PER_SIDE = Math.ceil(SIZE / CHUNK);
 export const WATER_Y = 3;
 export const MAX_H = 20;
 const CENTER = SIZE / 2;
-const PLATEAU_R = 7; // flattened disc the house sits on
+const PLATEAU_R = 10; // flattened disc the house sits on — grown to match the bigger house
 /**
  * The island's base elevation.
  *
@@ -149,10 +149,21 @@ function addTree(overlay: Overlay, hm: Heightmap, x: number, z: number) {
 }
 
 /**
- * The house. Four plank walls with a doorway, a log frame, a peaked plank
- * roof, a glass window either side of the door, and a bed against the back
- * wall — the one piece of furniture the game actually depends on, since
- * dying respawns you standing next to it.
+ * The house. One big hall now, not four walls around a bed — and, per the
+ * cozy-cabin build spec, no longer a flat plank box either: a visible stone
+ * foundation, a two-tone wood band (lighter main floor, darker upper storey)
+ * split by a log belt course, real framed picture windows instead of single
+ * scattered glass blocks, a covered entrance porch on log posts, a wider
+ * roof overhang with a dark eave trim, a short stone path, and a few bush
+ * clusters at the corners.
+ *
+ * What this deliberately does NOT attempt: true stairs/slab/fence geometry,
+ * a physically separate upper floor, or a full wraparound balcony. Every
+ * block here is a full cube — that's this engine's entire vocabulary — so
+ * "balcony" and "staircase" read as banding, framing and a porch roof
+ * instead of the partial-height shapes the spec's reference image uses.
+ * That's a real ceiling on how far this can go without a new geometry
+ * system for non-cube blocks, not an oversight.
  */
 export type HouseInfo = {
   doorX: number;
@@ -162,62 +173,177 @@ export type HouseInfo = {
   cx: number;
   cz: number;
   half: number;
+  /** How many rows tall the doorway opening is, from `baseY + 1`. */
+  doorH: number;
 };
+
+/** A framed picture window: a vertical log post either side, log sill and lintel, glass in between. */
+type WindowSpec = { start: number; glassW: number; y0: number; y1: number };
 
 function buildHouse(overlay: Overlay, hm: Heightmap): HouseInfo {
   const cx = Math.round(CENTER);
   const cz = Math.round(CENTER);
   const base = hm[cz * SIZE + cx];
-  const half = 3; // interior half-width
-  const wallH = 3;
+  const half = 7; // interior half-width — a 15x15 great room, up from 7x7
+  const wallH = 5; // taller too, so the room doesn't feel like a corridor
   const doorX = cx;
   const doorZ = cz + half;
+  const doorH = 3; // door rises through the lower band, matching wallH's taller walls
+
+  // Two-tone wood banding: a lighter main floor low, a darker upper storey
+  // just under the eaves, tied together by a log belt course at the top.
+  const bandSplit = base + 1 + Math.floor(wallH / 2); // rows below this: main floor; at/above: upper storey
+  const beltY = base + wallH; // the row just under the roofline
+
+  /**
+   * Windows per wall, given as an explicit glass-column range (`start` to
+   * `start + glassW - 1`, offset from the wall's centre) rather than a
+   * centre point — with integer block coordinates a "centre ± half-width"
+   * formula can't actually land on two columns for an even width, since the
+   * two nearest columns are each half a block off-centre. An explicit range
+   * has no such rounding trap. Kept well clear of corners and the door.
+   *
+   * The west and east walls get only one window each, and deliberately at
+   * opposite ends (west near the door, east near the back) — those two
+   * walls are also where every project plaque hangs (see the gallery
+   * section below), so the goal here is real architectural windows without
+   * eating the wall space the gallery actually needs. The front wall carries
+   * no plaques at all, so it's free to be the windowed focal point the spec
+   * asks for.
+   */
+  const windows: Record<'N' | 'S' | 'E' | 'W', WindowSpec[]> = {
+    S: [
+      { start: -(half - 1), glassW: 2, y0: base + 2, y1: base + 3 },
+      { start: half - 4, glassW: 2, y0: base + 2, y1: base + 3 },
+    ],
+    // North keeps just one window (east end) — the west end is the bed nook.
+    N: [{ start: half - 4, glassW: 2, y0: base + 2, y1: base + 3 }],
+    // One window near the door end — the rest of the wall stays clear for plaques.
+    W: [{ start: half - 4, glassW: 2, y0: base + 2, y1: base + 3 }],
+    // One window near the back end, mirrored to the opposite end from the
+    // west wall's — asymmetric on purpose, and it leaves the *other* end of
+    // this wall clear for plaques too.
+    E: [{ start: -(half - 1), glassW: 2, y0: base + 2, y1: base + 3 }],
+  };
+
+  /** Resolves which wall (if any) a wall cell belongs to, and its along-wall offset from centre. */
+  const wallOf = (x: number, z: number): { side: 'N' | 'S' | 'E' | 'W'; along: number } | null => {
+    if (z === cz - half) return { side: 'N', along: x - cx };
+    if (z === cz + half) return { side: 'S', along: x - cx };
+    if (x === cx - half) return { side: 'W', along: z - cz };
+    if (x === cx + half) return { side: 'E', along: z - cz };
+    return null;
+  };
 
   for (let x = cx - half; x <= cx + half; x++) {
     for (let z = cz - half; z <= cz + half; z++) {
       // Flatten the footprint to `base` so walls don't sit on stepped terrain.
       for (let y = hm[z * SIZE + x] + 1; y <= base; y++) overlay.set(key(x, y, z), Block.DIRT);
+      const wall = wallOf(x, z);
+      if (!wall) continue;
       for (let y = base + 1; y < base + 1 + wallH; y++) {
-        const onWall = x === cx - half || x === cx + half || z === cz - half || z === cz + half;
-        if (!onWall) continue;
-        const isDoorway = x === doorX && z === doorZ && y <= base + 2;
+        const isDoorway = x === doorX && z === doorZ && y <= base + doorH;
         if (isDoorway) continue;
         const corner = (x === cx - half || x === cx + half) && (z === cz - half || z === cz + half);
-        const isWindow =
-          y === base + 2 &&
-          !corner &&
-          ((z === cz - half && (x === cx - 1 || x === cx + 1)) ||
-            (x === cx - half && (z === cz - 1 || z === cz + 1)) ||
-            (x === cx + half && (z === cz - 1 || z === cz + 1)));
-        overlay.set(key(x, y, z), corner ? Block.LOG : isWindow ? Block.GLASS : Block.PLANK);
+        if (corner) { overlay.set(key(x, y, z), Block.LOG); continue; }
+        if (y === beltY) { overlay.set(key(x, y, z), Block.LOG); continue; } // the belt course, uninterrupted
+        const win = windows[wall.side].find((w) => wall.along >= w.start - 1 && wall.along <= w.start + w.glassW);
+        if (win) {
+          const inGlassCols = wall.along >= win.start && wall.along <= win.start + win.glassW - 1;
+          const isFramePost = !inGlassCols; // the column immediately either side of the glass
+          const isGlass = inGlassCols && y >= win.y0 && y <= win.y1;
+          const isSillOrLintel = inGlassCols && (y === win.y0 - 1 || y === win.y1 + 1);
+          if (isFramePost || isSillOrLintel) { overlay.set(key(x, y, z), Block.LOG); continue; }
+          if (isGlass) { overlay.set(key(x, y, z), Block.GLASS); continue; }
+        }
+        overlay.set(key(x, y, z), y < bandSplit ? Block.PLANK : Block.DARKPLANK);
       }
     }
   }
-  // Peaked roof: each ring in one block, rising to a ridge, plank shingles.
+
+  // Peaked roof: each ring in one block, rising to a ridge. A 2-block
+  // overhang (was 1) and a dark eave-trim row at the lowest ring, per the
+  // spec's call for a chunkier, more clearly-shingled roofline.
+  const roofOverhang = 2;
   const roofBaseY = base + 1 + wallH;
-  for (let ring = 0; ring <= half; ring++) {
+  const ringMax = half + roofOverhang - 1;
+  for (let ring = 0; ring <= ringMax; ring++) {
     const y = roofBaseY + ring;
-    for (let x = cx - half - 1 + ring; x <= cx + half + 1 - ring; x++) {
-      for (let z = cz - half - 1 + ring; z <= cz + half + 1 - ring; z++) {
-        const onRing =
-          x === cx - half - 1 + ring || x === cx + half + 1 - ring || z === cz - half - 1 + ring || z === cz + half + 1 - ring;
-        if (onRing) overlay.set(key(x, y, z), Block.PLANK);
+    const x0 = cx - half - roofOverhang + ring;
+    const x1 = cx + half + roofOverhang - ring;
+    const z0 = cz - half - roofOverhang + ring;
+    const z1 = cz + half + roofOverhang - ring;
+    for (let x = x0; x <= x1; x++) {
+      for (let z = z0; z <= z1; z++) {
+        const onRing = x === x0 || x === x1 || z === z0 || z === z1;
+        if (onRing) overlay.set(key(x, y, z), ring === 0 ? Block.DARKPLANK : Block.PLANK);
       }
     }
   }
-  // The bed: two blocks against the back (north) wall.
+
+  // The bed now lives tucked into the north-west corner rather than centred
+  // on the whole back wall — the back wall has to share the room with the
+  // gallery, the chest and the map now, not just the bed.
+  const bedX = cx - half + 1;
   const bedZ = cz - half + 1;
-  overlay.set(key(cx - 1, base + 1, bedZ), Block.BEDRED);
-  overlay.set(key(cx, base + 1, bedZ), Block.BEDWHITE);
+  overlay.set(key(bedX, base + 1, bedZ), Block.BEDRED);
+  overlay.set(key(bedX + 1, base + 1, bedZ), Block.BEDWHITE);
+
+  /*
+   * The entrance porch: a one-block-deep covered awning over the door on
+   * two log posts, per the spec's "small roof/awning" over the entrance.
+   * Full-cube-only, so it's a flat slab rather than a pitched mini-roof —
+   * still enough to read as a porch rather than a hole in a wall.
+   */
+  const porchZ = doorZ + 1;
+  for (const px of [doorX - 2, doorX + 2]) {
+    for (let y = base + 1; y <= base + 4; y++) overlay.set(key(px, y, porchZ), Block.LOG);
+  }
+  for (let x = doorX - 2; x <= doorX + 2; x++) overlay.set(key(x, base + 5, porchZ), Block.DARKPLANK);
+
+  /*
+   * A short, irregular stone path leading away from the porch (spec §19 —
+   * "avoid a perfectly straight artificial path"), and a stone/cobble
+   * foundation footer hugging the base of the walls (spec §4 — "should NOT
+   * be perfectly uniform"). Both just overwrite the top terrain layer, so
+   * they only look right where the surrounding ground is near `base`
+   * height, which the widened plateau flattening keeps true immediately
+   * around the house.
+   */
+  for (let x = cx - half - 1; x <= cx + half + 1; x++) {
+    for (let z = cz - half - 1; z <= cz + half + 1; z++) {
+      const onFooter = x === cx - half - 1 || x === cx + half + 1 || z === cz - half - 1 || z === cz + half + 1;
+      if (!onFooter) continue;
+      overlay.set(key(x, base, z), hash2(x, z) > 0.5 ? Block.STONE : Block.COBBLE);
+    }
+  }
+  for (let i = 1; i <= 5; i++) {
+    const pz = porchZ + i;
+    for (let dx = -1; dx <= 1; dx++) {
+      if (hash2(cx + dx, pz + 0.5) > 0.55) continue; // irregular, not a solid rectangle
+      overlay.set(key(cx + dx, base, pz), Block.STONE);
+    }
+  }
+
+  // Bush clusters at the four exterior corners (spec §17 — "use vegetation
+  // in clusters", not a hedge around the whole building).
+  for (const [bx, bz] of [
+    [cx - half - 1, cz - half - 1], [cx + half + 1, cz - half - 1],
+    [cx - half - 1, cz + half + 1], [cx + half + 1, cz + half + 1],
+  ] as const) {
+    overlay.set(key(bx, base + 1, bz), Block.LEAVES);
+    overlay.set(key(bx, base + 2, bz), Block.LEAVES);
+  }
 
   return {
     doorX,
     doorZ: doorZ + 1,
-    bedPos: new THREE.Vector3(cx - 0.5, base + 1.5, bedZ + 0.5),
+    bedPos: new THREE.Vector3(bedX + 0.5, base + 1.5, bedZ + 0.5),
     baseY: base,
     cx,
     cz,
     half,
+    doorH,
   };
 }
 
@@ -409,7 +535,6 @@ export type BuiltWorld = {
   house: HouseInfo;
   boards: { slug: string; position: THREE.Vector3; facing: number }[];
   waterMesh: THREE.Mesh;
-  craftingTablePos: THREE.Vector3;
   /** What's at this cell right now (terrain, overlay, or air). */
   getBlock: (x: number, y: number, z: number) => Block;
   /**
@@ -419,20 +544,29 @@ export type BuiltWorld = {
    * second opinion that could drift from it.
    */
   isSolidAt: (x: number, y: number, z: number) => boolean;
+  /**
+   * Same as `isSolidAt`, plus the house's doorway opening — used for every
+   * mob (hostile or not) and their arrows, never the player. This is the
+   * entire "gate": one column that's a wall to anything non-player, so
+   * zombies can't wander in at night and the guide can't wander out.
+   */
+  isMobSolidAt: (x: number, y: number, z: number) => boolean;
   /** World Y of the sea surface, for the swim check. */
   waterLevel: number;
   /** The shared atlas material, reused by every dropped item. */
   itemMaterial: THREE.Material;
   /** The animated sea, updated each frame. */
   water: Water;
-  /** Résumé chest beside the front door. */
+  /** Résumé chest, just inside the front door. */
   chest: Chest;
   chestPos: THREE.Vector3;
-  /** Career map on the plateau. */
+  /** Career map, just inside the front door on the other side. */
   mapPos: THREE.Vector3;
+  /** Where the resident guide NPC starts and wanders — the centre of the great room floor. */
+  guideHome: THREE.Vector3;
   /** Doorsteps of the village cottages — where townsfolk and the guardian live. */
   village: { x: number; z: number }[];
-  /** Where torches should stand: doorways, the plateau, and each notice board. */
+  /** Where torches should stand: doorways, cottages, and the corners of the great room. */
   torchSpots: { x: number; y: number; z: number }[];
   /**
    * Removes whatever's at this cell and returns the item it drops (or null
@@ -520,20 +654,6 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
       x >= cx2 - w - 2 && x <= cx2 + w + 2 && z >= cz2 - d - 2 && z <= cz2 + d + 2);
     if (!nearCottage) addTree(overlay, hm, x, z);
   }
-
-  /*
-   * The crafting table, on open ground a couple of paces off the doorstep.
-   * `house.doorZ` is already the cell outside the doorway, so offsetting
-   * outward along +Z keeps it clear of the wall.
-   */
-  const craftX = house.doorX + 2;
-  const craftZ = house.doorZ + 1;
-
-  // Scan down for the real surface: the house flattening writes DIRT into the
-  // overlay, so the raw heightmap alone would bury the table under it.
-  let craftY = MAX_H + 2;
-  while (craftY > 0 && !isSolid(hm, overlay, removed, craftX, craftY - 1, craftZ)) craftY--;
-  overlay.set(key(craftX, craftY, craftZ), Block.CRAFT);
 
   const atlas = buildAtlas();
   const group = new THREE.Group();
@@ -729,47 +849,88 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
     return 0;
   };
 
-  // Notice boards: one per project, ringed around the plateau facing the house.
+  /*
+   * The gallery: every project, résumé chest, and career map now lives
+   * *inside* the house instead of scattered around the island — mounted flat
+   * on the interior of the two long (east/west) walls, splitting the list
+   * between them. The house is built wide specifically so this fits: at
+   * `half = 7` each side wall has room for a handful of plaques with clear
+   * margin at the corners, the bed nook, the doorway, and — now that these
+   * walls have real windows — the window each of them carries. The west
+   * wall's window sits at its door (south) end, so the gallery run there
+   * uses the rest of the wall (north of it); the east wall's window is
+   * mirrored to the opposite end, so its gallery run sits south of it.
+   *
+   * The project list is admin-controlled and unbounded, so a single row per
+   * wall isn't enough on its own — it would just let plaques start
+   * overlapping once the count outgrew the wall length. `layoutOnWall`
+   * wraps into extra rows (zig-zagging up and down from eye level) once a
+   * row fills up, so adding a project in the admin panel always adds a
+   * *visible, non-overlapping* plaque here rather than crowding an existing
+   * one out.
+   */
+  const { cx, cz, half, baseY, doorH } = house;
+  const floorY = baseY + 1;
   const boards: BuiltWorld['boards'] = [];
-  const n = Math.max(1, projects.length);
-  // Ring radius scales with the map so boards stay a walk away, not a hike.
-  const ringR = Math.min(SIZE * 0.3, PLATEAU_R + 14);
-  const boardsGroup = new THREE.Group();
-  boardsGroup.name = 'boards';
-  projects.forEach((p, i) => {
-    const angle = (i / n) * Math.PI * 2;
-    /*
-     * Walk inward from the ring until the column is clear of the water.
-     *
-     * A fixed radius puts boards wherever the ring happens to land, and on a
-     * map with a real coastline some of those land in the surf — a project
-     * sign standing in the sea reads as a bug, because it is one. The ring is
-     * a starting suggestion; dry land wins.
-     */
-    let r = ringR;
-    let gx = Math.round(CENTER + Math.cos(angle) * r);
-    let gz = Math.round(CENTER + Math.sin(angle) * r);
-    // Dry land *and* clear of the village — a board standing inside someone's
-    // cottage is as broken as one standing in the sea, and the ring crosses
-    // the village on at least one bearing.
-    const occupied = (x: number, z: number) =>
-      cottages.some(([ox, oz, ow, od]) =>
-        x >= ox - ow - 1 && x <= ox + ow + 1 && z >= oz - od - 1 && z <= oz + od + 1);
-    while (r > 3 && (heightAt(gx, gz) <= WATER_Y + 1 || occupied(gx, gz))) {
-      r -= 1;
-      gx = Math.round(CENTER + Math.cos(angle) * r);
-      gz = Math.round(CENTER + Math.sin(angle) * r);
+  const galleryGroup = new THREE.Group();
+  galleryGroup.name = 'gallery';
+
+  // Usable z-range on each wall: inside the corners, clear of that wall's
+  // own window, and (on the west wall) clear of the bed nook too.
+  const westZ0 = cz - half + 3; // clear of the bed-nook corner
+  const westZ1 = cz + half - 6; // clear of the west wall's door-end window
+  const eastZ0 = cz - half + 4; // clear of the east wall's back-end window
+  const eastZ1 = cz + half - 3;
+
+  const westX = cx - half + 0.52; // just proud of the interior west wall face
+  const eastX = cx + half - 0.52; // just proud of the interior east wall face
+  const plaqueY = floorY + 1.55; // comfortable reading height, row 0
+
+  /** Lays `count` plaques along [z0, z1], wrapping into extra rows (zig-zagging above/below eye level) once a row is full. */
+  function layoutOnWall(count: number, z0: number, z1: number, eyeY: number): { z: number; y: number }[] {
+    if (count <= 0) return [];
+    const span = Math.max(0.1, z1 - z0);
+    const pitch = 1.05; // plaques are 0.95 wide; this leaves a visible gap between them
+    const perRow = Math.max(1, Math.floor(span / pitch) + 1);
+    const rowY = (r: number) => {
+      if (r === 0) return eyeY;
+      const step = Math.ceil(r / 2);
+      return r % 2 === 1 ? eyeY + step * 0.85 : eyeY - step * 0.85;
+    };
+    const out: { z: number; y: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const row = Math.floor(i / perRow);
+      const idxInRow = i % perRow;
+      const countInRow = Math.min(perRow, count - row * perRow);
+      const t = countInRow > 1 ? idxInRow / (countInRow - 1) : 0.5;
+      out.push({ z: z0 + t * span, y: rowY(row) });
     }
-    const gy = heightAt(gx, gz);
-    const facing = angle + Math.PI; // face the plateau/house
-    const mesh = buildSignMesh(p.name, p.blurb);
-    mesh.position.set(gx + 0.5, gy + 1, gz + 0.5);
-    mesh.rotation.y = facing;
-    mesh.userData.slug = p.slug;
-    boardsGroup.add(mesh);
-    boards.push({ slug: p.slug, position: new THREE.Vector3(gx + 0.5, gy + 1, gz + 0.5), facing });
+    return out;
+  }
+
+  const westCount = projects.filter((_, i) => i % 2 === 0).length;
+  const eastCount = projects.length - westCount;
+  const westLayout = layoutOnWall(westCount, westZ0, westZ1, plaqueY);
+  const eastLayout = layoutOnWall(eastCount, eastZ0, eastZ1, plaqueY);
+
+  let westI = 0;
+  let eastI = 0;
+  projects.forEach((p, i) => {
+    const onWest = i % 2 === 0;
+    const pos = onWest ? westLayout[westI++] : eastLayout[eastI++];
+
+    const plaque = buildWallPlaque(p.name);
+    plaque.userData.slug = p.slug;
+    // A plane's default normal is +Z; rotating ±90° about Y points it into
+    // the room from whichever wall it's hanging on (see the derivation in
+    // the comment on buildWallPlaque below).
+    const facing = onWest ? Math.PI / 2 : -Math.PI / 2;
+    plaque.rotation.y = facing;
+    plaque.position.set(onWest ? westX : eastX, pos.y, pos.z);
+    galleryGroup.add(plaque);
+    boards.push({ slug: p.slug, position: plaque.position.clone(), facing });
   });
-  group.add(boardsGroup);
+  group.add(galleryGroup);
 
   // Furniture and sky, added as meshes rather than blocks.
   group.add(buildBedMesh(house.bedPos.x, house.baseY + 1, house.bedPos.z));
@@ -783,10 +944,40 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   group.add(nameSign);
 
   /*
-   * Torch placement: either side of the player's front door, one at each
-   * cottage doorstep, and one beside every notice board. Boards especially —
-   * a project sign you cannot read after dark is a portfolio that hides its
-   * own content half the time.
+   * The résumé chest and the career map now flank the *inside* of the
+   * doorway rather than the outside of it — the first thing you see walking
+   * in, same as they used to be the first thing you saw walking up.
+   */
+  const chestX = cx - 2;
+  const chestZ = cz + half - 2;
+  const chest = new Chest(chestX + 0.5, floorY, chestZ + 0.5, Math.PI);
+  group.add(chest.group);
+
+  const mapX = cx + 2;
+  const mapZ = cz + half - 2;
+  const mapBoard = new MapBoard(mapX + 0.5, floorY, mapZ + 0.5, Math.PI);
+  group.add(mapBoard.group);
+
+  /*
+   * The gate: a low wooden gate across the porch, at the same column as the
+   * actual (invisible) mob barrier below — see `isMobSolidAt`. Visually it
+   * reads as "this entrance is guarded"; the collision that actually keeps
+   * zombies out and the guide in is a separate, deliberately invisible
+   * check, since this mesh is knee-high and the player still has to walk
+   * straight through it.
+   */
+  const gateZ = cz + half + 1;
+  group.add(buildGateMesh(house.doorX + 0.5, heightAt(house.doorX, gateZ) + 1, gateZ + 0.5));
+
+  /*
+   * Torch placement: either side of the front door (outside, so the
+   * threshold is lit), one at each cottage doorstep, and a ring around the
+   * inside of the great room — including one at each gallery wall's midpoint
+   * — now that it's genuinely large enough to go properly dark in its own
+   * corners at night. This was the single biggest thing making the house
+   * feel gloomy after dark: four corner torches over a 15x15 floor leaves
+   * the middle of each wall in shadow, which is exactly where the plaques
+   * people are meant to be reading are.
    */
   const torchSpots: { x: number; y: number; z: number }[] = [];
   const addTorch = (x: number, z: number) => {
@@ -796,22 +987,39 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   addTorch(house.doorX - 1, house.doorZ);
   addTorch(house.doorX + 1, house.doorZ);
   for (const v of village) addTorch(v.x, v.z + 1);
-  for (const b of boards) addTorch(Math.round(b.position.x - 0.5) + 1, Math.round(b.position.z - 0.5));
+  // Interior corners, inset one block from the walls so the torch isn't
+  // buried inside the log framing.
+  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz - half + 1.5 });
+  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz - half + 1.5 });
+  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz + half - 1.5 });
+  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz + half - 1.5 });
+  // Gallery-wall midpoints and the room's centre, so the plaques and the
+  // guide are both lit rather than just the corners and the doorway.
+  torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz + 0.5 });
+  torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz + 0.5 });
+  torchSpots.push({ x: cx + 0.5, y: floorY, z: cz - half + 1.5 });
+
+  /** Where the resident guide stands and wanders — dead centre of the hall. */
+  const guideHome = new THREE.Vector3(cx + 0.5, floorY, cz + 0.5);
 
   /*
-   * Chest and map flank the doorstep, on the opposite side to the crafting
-   * table so the three interaction prompts never overlap — E resolves to the
-   * nearest thing, and stacking them a block apart makes that a coin toss.
+   * The one place in the whole map that treats mobs and the player
+   * differently: this column, the actual doorway opening in the wall, is
+   * solid to any mob but open air to the player. That's what stops a
+   * zombie from wandering in at night, an arrow from a skeleton outside
+   * flying in through the door, and — the same mechanism, for free — the
+   * guide from wandering back out once it's inside. The player's own
+   * collision (`isSolidAt`, used by player.ts) never sees this column.
    */
-  const chestX = house.doorX - 2;
-  const chestZ = house.doorZ + 2;
-  const chest = new Chest(chestX + 0.5, heightAt(chestX, chestZ) + 1, chestZ + 0.5, Math.PI);
-  group.add(chest.group);
-
-  const mapX = house.doorX - 4;
-  const mapZ = house.doorZ + 4;
-  const mapBoard = new MapBoard(mapX + 0.5, heightAt(mapX, mapZ) + 1, mapZ + 0.5, Math.PI);
-  group.add(mapBoard.group);
+  const doorBlockX = house.doorX;
+  const doorBlockZ = cz + half;
+  const doorBlockY0 = baseY + 1;
+  const doorBlockY1 = baseY + doorH;
+  const isMobSolidAt = (x: number, y: number, z: number): boolean => {
+    if (x === doorBlockX && z === doorBlockZ && y >= doorBlockY0 && y <= doorBlockY1) return true;
+    if (!inBounds(x, z)) return true;
+    return isSolid(hm, overlay, removed, x, y, z);
+  };
 
   const getBlock = (x: number, y: number, z: number) => blockFor(hm, overlay, removed, x, y, z);
 
@@ -886,7 +1094,6 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
     house,
     boards,
     waterMesh,
-    craftingTablePos: new THREE.Vector3(craftX + 0.5, heightAt(craftX, craftZ) + 1, craftZ + 0.5),
     getBlock,
     isSolidAt: (x, y, z) => {
       // Outside the map horizontally is an invisible wall rather than air, so
@@ -894,12 +1101,14 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
       if (!inBounds(x, z)) return true;
       return isSolid(hm, overlay, removed, x, y, z);
     },
+    isMobSolidAt,
     waterLevel: WATER_Y + 0.85,
     itemMaterial: opaqueMat,
     water,
     chest,
-    chestPos: new THREE.Vector3(chestX + 0.5, heightAt(chestX, chestZ) + 1, chestZ + 0.5),
-    mapPos: new THREE.Vector3(mapX + 0.5, heightAt(mapX, mapZ) + 1.4, mapZ + 0.5),
+    chestPos: new THREE.Vector3(chestX + 0.5, floorY, chestZ + 0.5),
+    mapPos: new THREE.Vector3(mapX + 0.5, floorY + 1.4, mapZ + 0.5),
+    guideHome,
     village,
     torchSpots,
     breakBlock,
@@ -927,5 +1136,61 @@ function buildSignMesh(title: string, body: string, hero = false): THREE.Group {
   board.position.set(0, 1.35, 0.1);
   g.add(board);
 
+  return g;
+}
+
+/**
+ * A project plaque mounted flush on an interior wall — the gallery version
+ * of `buildSignMesh`, minus the post: there's a real wall right behind it,
+ * so it doesn't need one to stand on.
+ *
+ * Title only, no blurb — the plaque is a nameplate you spot from across the
+ * room; the write-up lives in the panel that opens on E, at the same depth
+ * as everywhere else on the site. Painting the blurb onto a few pixels of
+ * canvas texture was never going to be readable at that size anyway.
+ * Smaller than the old title+blurb board, too, since a name needs less
+ * real estate than a name-and-paragraph — which is also what makes the
+ * gallery walls able to fit more plaques.
+ *
+ * `PlaneGeometry`'s default face normal is +Z. Rotating the mesh ±90° about
+ * Y is what the gallery placement code uses to point that normal into the
+ * room from whichever wall it's hanging on — `Math.PI / 2` sends +Z to +X
+ * (for a plaque on the west wall, where the room is on the +X side of it),
+ * and `-Math.PI / 2` sends it to -X (east wall, room on the -X side).
+ */
+function buildWallPlaque(title: string): THREE.Mesh {
+  const boardTex = paintSignTitle(title);
+  const boardMat = new THREE.MeshBasicMaterial({ map: boardTex, side: THREE.DoubleSide });
+  const boardGeo = new THREE.PlaneGeometry(0.95, 0.6);
+  return new THREE.Mesh(boardGeo, boardMat);
+}
+
+/**
+ * A low wooden gate across the doorway, on the porch — the visible half of
+ * "keep zombies out." (The half that actually works is the invisible mob
+ * collider at the wall opening itself, see `isMobSolidAt` — a knee-high
+ * decorative gate can't stop anything on its own, and the player still
+ * needs to walk through this same spot.) Two posts, a top rail, and a
+ * cross-brace read as "gate" without needing hinge geometry this engine
+ * doesn't have.
+ */
+function buildGateMesh(x: number, y: number, z: number): THREE.Group {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshLambertMaterial({ color: 0x5a3f26 });
+  for (const dx of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.1, 0.1), wood);
+    post.position.set(dx, 0.55, 0);
+    g.add(post);
+  }
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.09, 0.09), wood);
+  rail.position.set(0, 1.02, 0);
+  g.add(rail);
+  const brace1 = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.08, 0.08), wood);
+  brace1.rotation.z = Math.PI / 5.5;
+  brace1.position.set(0, 0.55, 0);
+  const brace2 = brace1.clone();
+  brace2.rotation.z = -Math.PI / 5.5;
+  g.add(brace1, brace2);
+  g.position.set(x, y, z);
   return g;
 }

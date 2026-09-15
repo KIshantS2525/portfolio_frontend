@@ -29,7 +29,7 @@ export const enum Block {
   BOARD,
   COBBLE,
   GLASS,
-  CRAFT,
+  DARKPLANK,
 }
 
 /** What breaking a block leaves you holding. `null` means nothing drops (matches glass, beds). */
@@ -42,7 +42,7 @@ export const DROP_FOR: Partial<Record<Block, Block>> = {
   [Block.LEAVES]: Block.LEAVES,
   [Block.PLANK]: Block.PLANK,
   [Block.COBBLE]: Block.COBBLE,
-  [Block.CRAFT]: Block.CRAFT,
+  [Block.DARKPLANK]: Block.DARKPLANK,
 };
 
 /** Flat HUD swatch colours, independent of the 3D atlas — the hotbar is drawn in CSS, not painted. */
@@ -55,7 +55,7 @@ export const SWATCH: Record<number, string> = {
   [Block.PLANK]: '#b98850',
   [Block.COBBLE]: '#6f7378',
   [Block.GLASS]: '#a9d3de',
-  [Block.CRAFT]: '#8a6a44',
+  [Block.DARKPLANK]: '#5a3f26',
 };
 
 /** Blocks rendered on the transparent pass (holes / see-through). */
@@ -84,8 +84,7 @@ const TILE_INDEX = {
   cobble: 12,
   glass: 13,
   bedSide: 14,
-  craftTop: 15,
-  craftSide: 16,
+  darkPlank: 15,
 } as const;
 
 /** [top, bottom, side] tile indices per block. */
@@ -102,7 +101,7 @@ const FACE_TILES: Record<number, [number, number, number]> = {
   [Block.BOARD]: [TILE_INDEX.board, TILE_INDEX.board, TILE_INDEX.board],
   [Block.COBBLE]: [TILE_INDEX.cobble, TILE_INDEX.cobble, TILE_INDEX.cobble],
   [Block.GLASS]: [TILE_INDEX.glass, TILE_INDEX.glass, TILE_INDEX.glass],
-  [Block.CRAFT]: [TILE_INDEX.craftTop, TILE_INDEX.plank, TILE_INDEX.craftSide],
+  [Block.DARKPLANK]: [TILE_INDEX.darkPlank, TILE_INDEX.darkPlank, TILE_INDEX.darkPlank],
 };
 
 export function tilesFor(block: Block): [number, number, number] {
@@ -258,15 +257,8 @@ function paintAll(ctx: CanvasRenderingContext2D) {
   paintTile(ctx, TILE_INDEX.cobble % COLS, Math.floor(TILE_INDEX.cobble / COLS), '#6f7378', 13, { speckle: '#5a5d61', bands: '#83878c' });
   paintTile(ctx, TILE_INDEX.glass % COLS, Math.floor(TILE_INDEX.glass / COLS), 'rgba(180,215,225,0.35)', 14, {});
   paintTile(ctx, TILE_INDEX.bedSide % COLS, Math.floor(TILE_INDEX.bedSide / COLS), '#8a4646', 15, { bands: '#733a3a' });
-  paintTile(ctx, TILE_INDEX.craftTop % COLS, Math.floor(TILE_INDEX.craftTop / COLS), '#a1753f', 16, { bands: '#8a6030' });
-  // a crossed-grid on top, standing in for the recipe grid
-  const ctx0 = (TILE_INDEX.craftTop % COLS) * TILE;
-  const cty0 = Math.floor(TILE_INDEX.craftTop / COLS) * TILE;
-  ctx.strokeStyle = '#5e3f1d';
-  ctx.lineWidth = 1;
-  for (let i = 4; i < TILE; i += 4) {
-    ctx.beginPath(); ctx.moveTo(ctx0 + i, cty0 + 1); ctx.lineTo(ctx0 + i, cty0 + TILE - 1); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ctx0 + 1, cty0 + i); ctx.lineTo(ctx0 + TILE - 1, cty0 + i); ctx.stroke();
-  }
-  paintTile(ctx, TILE_INDEX.craftSide % COLS, Math.floor(TILE_INDEX.craftSide / COLS), '#8a6030', 17, { bands: '#734f27', speckle: '#5e3f1d' });
+  // The dark accent wood for the upper storey band and roof eave trim —
+  // same plank grain, a deliberately darker, cooler brown so it reads as a
+  // second wood species next to the main-floor planks rather than a shadow.
+  paintTile(ctx, TILE_INDEX.darkPlank % COLS, Math.floor(TILE_INDEX.darkPlank / COLS), '#5a3f26', 16, { bands: '#432e1b' });
 }

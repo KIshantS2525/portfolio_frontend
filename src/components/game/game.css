@@ -259,27 +259,94 @@
   justify-content: center;
   background: rgba(0, 0, 0, 0.72);
   z-index: 15;
+  /* Breathing room on small viewports so a big modal never touches the edge. */
+  padding: 24px;
 }
 .voxel-modal-inner {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  padding: 28px 34px;
+  /*
+   * Was sized to content alone, which on a short message (like the chest's)
+   * produced a noticeably small window relative to the screen behind it —
+   * a floating card rather than something that reads as a real panel.
+   * A minimum width fixes that without stopping longer content (the project
+   * write-ups) from asking for more room up to `max-width`.
+   */
+  width: 100%;
+  min-width: min(520px, 90vw);
+  max-width: min(680px, 92vw);
+  padding: 36px 44px;
   background: rgba(22, 20, 17, 0.96);
   border: 2px solid #0d0b09;
   box-shadow:
     inset 1px 1px 0 rgba(255, 255, 255, 0.14),
-    inset -1px -1px 0 rgba(0, 0, 0, 0.6);
+    inset -1px -1px 0 rgba(0, 0, 0, 0.6),
+    0 12px 32px rgba(0, 0, 0, 0.55);
   text-align: center;
 }
-.voxel-modal-wide { max-width: 54ch; }
+.voxel-modal-wide { max-width: min(760px, 94vw); }
 .voxel-body {
   font-family: var(--font-sans, ui-sans-serif);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.65;
   color: rgba(244, 239, 226, 0.88);
 }
+
+/* ── The full project write-up panel (E on a gallery plaque) ────────────── */
+.voxel-project-modal { max-height: 82vh; }
+.voxel-project-meta {
+  margin-top: -8px;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(244, 239, 226, 0.5);
+}
+.voxel-project-scroll {
+  width: 100%;
+  max-height: 52vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  text-align: left;
+}
+.voxel-project-blurb {
+  font-size: 18px;
+  color: var(--hud-ink);
+  margin-bottom: 18px;
+}
+.voxel-project-para { margin-bottom: 16px; }
+.voxel-project-head {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(244, 239, 226, 0.5);
+  margin-bottom: 4px;
+}
+.voxel-project-tech {
+  margin-top: 8px;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12.5px;
+  color: rgba(244, 239, 226, 0.55);
+}
+.voxel-project-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 14px;
+}
+.voxel-link-inline {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 13px;
+  color: #f4efe2;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  opacity: 0.85;
+}
+.voxel-link-inline:hover { opacity: 1; }
 
 .voxel-sleep {
   position: absolute;
@@ -325,22 +392,23 @@
 .voxel-chest-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
   width: 100%;
 }
 .voxel-link {
   display: block;
-  padding: 9px 12px;
+  padding: 12px 14px;
   border: 2px solid #0d0b09;
   background: rgba(120, 114, 104, 0.28);
   box-shadow:
     inset 1px 1px 0 rgba(255, 255, 255, 0.16),
     inset -1px -1px 0 rgba(0, 0, 0, 0.5);
   font-family: var(--font-sans, ui-sans-serif);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--hud-ink);
   text-decoration: none;
   transition: background 150ms ease;
+  overflow-wrap: anywhere;
 }
 .voxel-link:hover { background: rgba(226, 219, 202, 0.24); }
 
@@ -383,4 +451,191 @@
   font-size: 12.5px;
   line-height: 1.55;
   opacity: 0.72;
+}
+
+/* ── NPC guide: bottom question bar, right-side answer panel, head bubble ─ */
+
+.voxel-npc-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(22, 20, 17, 0.92);
+  border: 2px solid #0d0b09;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.14),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.6),
+    0 4px 14px rgba(0, 0, 0, 0.5);
+  z-index: 16;
+  width: min(560px, 88vw);
+}
+.voxel-npc-bar-name {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hud-ink);
+  opacity: 0.65;
+  padding-left: 4px;
+  white-space: nowrap;
+}
+.voxel-npc-bar-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.voxel-npc-bar-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(120, 114, 104, 0.22);
+  border: 2px solid #0d0b09;
+  padding: 8px 10px;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 13px;
+  color: var(--hud-ink);
+  outline: none;
+}
+.voxel-npc-bar-input::placeholder { color: rgba(244, 239, 226, 0.45); }
+.voxel-npc-bar-send,
+.voxel-npc-bar-close {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12px;
+  color: var(--hud-ink);
+  background: rgba(120, 114, 104, 0.28);
+  border: 2px solid #0d0b09;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.voxel-npc-bar-send:hover:not(:disabled),
+.voxel-npc-bar-close:hover { background: rgba(226, 219, 202, 0.24); }
+.voxel-npc-bar-send:disabled { opacity: 0.4; cursor: not-allowed; }
+.voxel-npc-bar-close { padding: 8px 10px; }
+
+.voxel-npc-panel {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  /*
+   * Was min(380px, 88vw) / 62vh — noticeably cramped once an answer ran
+   * more than a few lines (see the flex fix on the body below: before that
+   * fix the panel didn't even scroll, it just overflowed the viewport).
+   * Bigger box, same corner.
+   */
+  width: min(460px, 92vw);
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(22, 20, 17, 0.94);
+  border: 2px solid #0d0b09;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.14),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.6),
+    0 8px 24px rgba(0, 0, 0, 0.5);
+  transition: opacity 320ms ease, transform 320ms ease;
+  z-index: 16;
+}
+.voxel-npc-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 2px solid #0d0b09;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hud-ink);
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.voxel-npc-panel-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(244, 239, 226, 0.55);
+  cursor: pointer;
+}
+.voxel-npc-panel-clear:hover { color: var(--hud-ink); }
+.voxel-npc-panel-body {
+  padding: 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /*
+   * The actual scroll bug: `.voxel-npc-panel` is a flex column with a
+   * `max-height`, but a flex child's default `min-height` is `auto`, which
+   * lets it grow to its content's full height instead of being clamped by
+   * the parent — so a long answer just pushed the whole panel past the
+   * bottom of the screen instead of scrolling inside it. `flex: 1 1 0` plus
+   * `min-height: 0` is what actually makes `overflow-y: auto` kick in here.
+   */
+  flex: 1 1 0;
+  min-height: 0;
+}
+.voxel-npc-msg-you {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  color: rgba(244, 239, 226, 0.6);
+  white-space: pre-wrap;
+}
+.voxel-npc-msg-them {
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--hud-ink);
+  white-space: pre-wrap;
+}
+.voxel-npc-panel-error {
+  padding: 0 14px 14px;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12px;
+  color: #e08a6a;
+}
+
+/* The floating "..." over the NPC's head — positioned imperatively every
+   frame in Game.tsx's loop (a world-to-screen projection), so this only
+   carries the look, not the placement. */
+.voxel-npc-bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -100%);
+  max-width: 220px;
+  padding: 8px 12px;
+  background: rgba(244, 239, 226, 0.96);
+  color: #16140f;
+  border: 2px solid #0d0b09;
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+  z-index: 14;
+  display: none;
+}
+.voxel-npc-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: inherit;
+  border-right: 2px solid #0d0b09;
+  border-bottom: 2px solid #0d0b09;
+  transform: rotate(45deg);
 }

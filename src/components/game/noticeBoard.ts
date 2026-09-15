@@ -37,6 +37,66 @@ export function paintSign(title: string, body: string, hero = false): THREE.Canv
   return tex;
 }
 
+/**
+ * The gallery-wall version: name only, no blurb. The plaque out in the world
+ * is a nameplate, not a case study — the full write-up belongs in the panel
+ * that opens on E, at the same depth the rest of the site gives it, not
+ * crammed onto a painted board a few pixels tall. Bigger, centred type since
+ * there's no second line competing for room.
+ */
+export function paintSignTitle(title: string): THREE.CanvasTexture {
+  const W = 512;
+  const H = 320;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#e8d2a0';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#8a6a3e';
+  ctx.lineWidth = 10;
+  ctx.strokeRect(5, 5, W - 10, H - 10);
+
+  ctx.fillStyle = '#3a2a15';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 56px Georgia, serif';
+  wrapTextCentered(ctx, title, W / 2, H / 2, W - 70, 62);
+  ctx.textAlign = 'left'; // restore the default other callers (wrapText) expect
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Centred, vertically-balanced wrap for a short title with no body copy beneath it. */
+function wrapTextCentered(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  cx: number,
+  cy: number,
+  maxWidth: number,
+  lineHeight: number,
+) {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  const top = cy - ((lines.length - 1) * lineHeight) / 2;
+  lines.forEach((l, i) => ctx.fillText(l, cx, top + i * lineHeight));
+}
+
 /** Chops a single overlong word down to fit `maxWidth`, with a trailing ellipsis. */
 function truncateWord(ctx: CanvasRenderingContext2D, word: string, maxWidth: number): string {
   if (ctx.measureText(word).width <= maxWidth) return word;

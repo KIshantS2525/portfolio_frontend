@@ -16,7 +16,19 @@ import * as THREE from 'three';
  * A torch across the island contributes nothing visible anyway.
  */
 
-const LIGHT_BUDGET = 6;
+/*
+ * The light budget was 6, tuned back when the house interior only had a
+ * handful of torches competing with everything outside it. The house is a
+ * real 15x15 room with its own ring of torches now, and being *inside* it
+ * at night — which is where the player actually spends time reading the
+ * gallery — was consistently darker than it should be: "nearest 6" doesn't
+ * guarantee all of one room's torches win against a village doorstep torch
+ * that happens to be a little closer. Bumped to 10, and each light is a
+ * little brighter and reaches a little further, which is the other half of
+ * "the house looks dark at night" — 6 lights at the old intensity/distance
+ * simply didn't reach every corner of a room this size.
+ */
+const LIGHT_BUDGET = 10;
 
 export type Torch = { pos: THREE.Vector3; flame: THREE.Mesh; phase: number };
 
@@ -40,7 +52,7 @@ export class Torches {
     this.stickMat = new THREE.MeshLambertMaterial({ color: 0x6b4a30 });
 
     for (let i = 0; i < LIGHT_BUDGET; i++) {
-      const l = new THREE.PointLight(0xffa851, 0, 11, 1.7);
+      const l = new THREE.PointLight(0xffa851, 0, 13, 1.6);
       l.visible = false;
       this.lights.push(l);
       scene.add(l);
@@ -77,8 +89,8 @@ export class Torches {
       const f = 0.82 + 0.13 * Math.sin(time * 9 + t.phase) + 0.05 * Math.sin(time * 23.7 + t.phase * 2);
       light.visible = true;
       light.position.copy(t.pos);
-      light.intensity = 9.5 * f * lit;
-      light.distance = 12;
+      light.intensity = 12 * f * lit;
+      light.distance = 15;
     });
 
     for (const t of this.torches) {

@@ -19,23 +19,26 @@ import {
 import { spawnDrop, updateDrop, type Drop } from '@/components/game/drops';
 import { raycastVoxel } from '@/components/game/raycastVoxel';
 import {
-  RECIPES, SLOT_COUNT, emptyInventory, addItem, takeFromSlot, canCraft, craft,
+  SLOT_COUNT, emptyInventory, addItem, takeFromSlot,
   type Inventory,
 } from '@/components/game/inventory';
 import { GameAudio } from '@/components/game/audio';
+import { NpcChat } from '@/components/game/NpcChat';
 import { useProfile, useProjects, useRoles } from '@/lib/useContent';
 
 const MAX_HP = 10;
 const REACH = 4.8;
 const BREAK_TIME = 0.34;
 const INTERACT_R = 3.2;
+/** The one resident of the house, roaming its floor and answering questions. */
+const NPC_NAME = 'the Guide';
 
 /** What the player is currently close enough to press E on. */
 type Interaction =
   | { kind: 'bed' }
-  | { kind: 'craft' }
   | { kind: 'chest' }
   | { kind: 'map' }
+  | { kind: 'npc' }
   | { kind: 'board'; slug: string; name: string }
   | null;
 
@@ -56,6 +59,11 @@ export default function Game() {
   const panelRef = useRef<string | null>(null);
   const interactRef = useRef<Interaction>(null);
   const sleepTimerRef = useRef<number | null>(null);
+  /** The one NPC in the house — set once it's spawned, read every frame for proximity and the head bubble. */
+  const guideRef = useRef<Mob | null>(null);
+  const npcOpenRef = useRef(false);
+  const npcBubbleRef = useRef<string | null>(null);
+  const bubbleElRef = useRef<HTMLDivElement>(null);
 
   const profile = useProfile();
   const { projects, ready: contentReady } = useProjects();
@@ -75,11 +83,15 @@ export default function Game() {
   const [thirdPerson, setThirdPerson] = useState(false);
   const [phase, setPhase] = useState('Morning');
   const [muted, setMuted] = useState(false);
+  const [npcOpen, setNpcOpen] = useState(false);
+  const [npcBubble, setNpcBubble] = useState<string | null>(null);
 
   useEffect(() => { dayNightRef.current?.setNight(night); }, [night]);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { panelRef.current = panel; }, [panel]);
   useEffect(() => { interactRef.current = interaction; }, [interaction]);
+  useEffect(() => { npcOpenRef.current = npcOpen; }, [npcOpen]);
+  useEffect(() => { npcBubbleRef.current = npcBubble; }, [npcBubble]);
   // Stop (suspend) all sound whenever the game isn't actually being played:
   // pointer unlocked (Esc, opening a panel, sleeping), dead, or not ready
   // yet. Previously nothing gated ambience on pause at all — footsteps,
@@ -96,6 +108,21 @@ export default function Game() {
     () => projects.find((p) => p.slug === panel) ?? null,
     [panel, projects],
   );
+  /**
+   * The same breakdown WritingPad uses in the archive — problem/approach/
+   * outcome plus any extra detail paragraphs. The E-interact panel used to
+   * show only the one-line `blurb`, which is a fraction of what every other
+   * path into a project's write-up on this site shows.
+   */
+  const projectParas = useMemo(() => {
+    if (!openProject) return [] as [string, string][];
+    return [
+      openProject.challenge && (['The problem', openProject.challenge] as [string, string]),
+      openProject.approach && (['What I did', openProject.approach] as [string, string]),
+      openProject.outcome && (['What came of it', openProject.outcome] as [string, string]),
+      ...(openProject.detail ?? []).map((d) => ['', d] as [string, string]),
+    ].filter((v): v is [string, string] => Boolean(v));
+  }, [openProject]);
 
   const takeDamage = useCallback((dmg: number) => {
     hpRef.current = Math.max(0, hpRef.current - dmg);
@@ -108,6 +135,18 @@ export default function Game() {
     audioRef.current?.hurt();
     if (hpRef.current <= 0) {
       setDead(true);
+      /*
+       * Death used to paint the "Knocked out" overlay over a simulation that
+       * kept right on running underneath it: `paused` is `!controls.isLocked`,
+       * and nothing here ever released the pointer lock on death, so mobs
+       * kept moving and landing hits, mining kept working, and the camera
+       * kept turning — all hidden behind the overlay. It also meant the
+       * pointer stayed invisible (Pointer Lock hides the OS cursor while
+       * locked), so the "Wake up" button had nothing visible to click until
+       * the player guessed to hit Escape first. Unlocking here fixes both:
+       * `paused` flips true next frame, and the cursor reappears with it.
+       */
+      controllerRef.current?.controls.unlock();
       // A mob could land the killing blow while the 1500ms sleep timer is
       // still running (mobs are only gated on `paused`, and sleeping merely
       // unlocks the pointer — it doesn't pause them). Without this, the
@@ -149,15 +188,6 @@ export default function Game() {
     setInventory(next);
     audioRef.current?.pickup();
     return true;
-  }, []);
-
-  const craftRecipe = useCallback((id: string) => {
-    const recipe = RECIPES.find((r) => r.id === id);
-    if (!recipe) return;
-    const next = craft(invRef.current, recipe);
-    if (next === invRef.current) return;
-    invRef.current = next;
-    setInventory(next);
   }, []);
 
   /** Sleep: skip the night, and top the player up, like a bed should. */
@@ -346,6 +376,10 @@ export default function Game() {
         addMob('guardian', mx, mz);
       }
 
+      // The one resident of the house — wanders the great room floor
+      // (`guideHome`, dead centre) and is who the chat panel talks to.
+      guideRef.current = addMob('villager', world.guideHome.x, world.guideHome.z);
+
       controller.avatar.traverse((o) => { o.castShadow = true; });
       scene.add(controller.avatar);
       for (const m of mobs) m.group.traverse((o) => { o.castShadow = true; });
@@ -363,6 +397,7 @@ export default function Game() {
 
       const forward2 = new THREE.Vector3();
       const dir2 = new THREE.Vector3();
+      const bubbleVec = new THREE.Vector3();
 
       let mining = false;
       let mineTarget: THREE.Vector3 | null = null;
@@ -379,6 +414,11 @@ export default function Game() {
           // Every mob can be hit, peaceful or not — the sword used to pass
           // straight through sheep, pigs and townsfolk, which read as the swing
           // being broken rather than as a deliberate rule.
+          // The one exception is the guide: it's the only way to reach the
+          // chat panel, so letting it be killed like any other villager would
+          // let the player permanently break their own conversation feature
+          // for the rest of the session.
+          if (mob === guideRef.current) continue;
           if (mob.dead || !mob.group.visible) continue;
           if (camera.position.distanceTo(mob.pos) > 2.8) continue;
           const toMob = mob.pos.clone().sub(camera.position).normalize();
@@ -430,6 +470,13 @@ export default function Game() {
       window.addEventListener('wheel', onWheel);
 
       const onKeyDown = (e: KeyboardEvent) => {
+        // While the chat is open, every other key is left alone — typing a
+        // question shouldn't also flip hotbar slots (digits) or toggle third
+        // person (C). Escape still closes it, same as every other panel.
+        if (npcOpenRef.current) {
+          if (e.code === 'Escape') { setNpcOpen(false); controller.controls.lock(); }
+          return;
+        }
         if (e.code === 'Escape') controller.controls.unlock();
         const num = Number(e.code.replace('Digit', ''));
         if (!Number.isNaN(num) && num >= 1 && num <= SLOT_COUNT) setSelected(num - 1);
@@ -451,10 +498,10 @@ export default function Game() {
           // mouseup. Clearing it here matches what mouseup already does.
           mining = false; mineTarget = null; mineT = 0; setBreakProgress(0);
           if (it.kind === 'board') { setPanel(it.slug); controller.controls.unlock(); }
-          else if (it.kind === 'craft') { setPanel('__craft'); controller.controls.unlock(); }
           else if (it.kind === 'chest') { setPanel('__chest'); controller.controls.unlock(); }
           else if (it.kind === 'map') { setPanel('__map'); controller.controls.unlock(); }
           else if (it.kind === 'bed') sleep();
+          else if (it.kind === 'npc') { setNpcOpen(true); controller.controls.unlock(); }
         }
       };
       window.addEventListener('keydown', onKeyDown);
@@ -502,8 +549,6 @@ export default function Game() {
         let bestD = INTERACT_R;
         const bedD = feet.distanceTo(world.house.bedPos);
         if (bedD < bestD) { bestD = bedD; found = { kind: 'bed' }; }
-        const craftD = feet.distanceTo(world.craftingTablePos);
-        if (craftD < bestD) { bestD = craftD; found = { kind: 'craft' }; }
         // Chest and map were never added to this sweep at all — the modals
         // for both exist in the JSX and both are reachable in principle, but
         // interactRef could never actually become { kind: 'chest' | 'map' },
@@ -512,6 +557,13 @@ export default function Game() {
         if (chestD < bestD) { bestD = chestD; found = { kind: 'chest' }; }
         const mapD = feet.distanceTo(world.mapPos);
         if (mapD < bestD) { bestD = mapD; found = { kind: 'map' }; }
+        // The guide moves, unlike everything else in this sweep, so its
+        // distance has to be recomputed from its live position every frame
+        // rather than a position baked in once at world-build time.
+        if (guideRef.current && !guideRef.current.dead) {
+          const npcD = feet.distanceTo(guideRef.current.pos);
+          if (npcD < bestD) { bestD = npcD; found = { kind: 'npc' }; }
+        }
         for (const b of world.boards) {
           const d = feet.distanceTo(b.position);
           if (d < bestD) {
@@ -557,54 +609,96 @@ export default function Game() {
         }
 
         const isNight = dayNight.factor > 0.5;
-        for (const mob of mobsRef.current) {
-          if (mob.kind === 'zombie' || mob.kind === 'skeleton') {
-            // Was `> 0.15`, which is true for most of the day — zombies and
-            // skeletons popped into view in the early evening well before it
-            // was actually dark, and once factor ticked past 0.15 on the
-            // first dusk they stayed visible even at noon the next day.
-            // `isNight` (> 0.5) is the same threshold everything else in the
-            // loop already keys hostility off.
-            mob.group.visible = isNight || mob.dead;
+        /*
+         * Every entity update below used to run unconditionally, regardless
+         * of `paused` — mining was already gated, but mobs kept walking and
+         * attacking, and arrows kept flying and landing hits, underneath
+         * every panel, the NPC chat, and (worst of all) the death screen.
+         * Wrapping combat/physics in `!paused` is what makes "paused" mean
+         * paused rather than just "camera stopped, everything else keeps
+         * going." The visible world — day/night, water, clouds, chest lid,
+         * ambience — keeps living on purpose; only what could hurt or move
+         * the player stops.
+         */
+        if (!paused) {
+          for (const mob of mobsRef.current) {
+            if (mob.kind === 'zombie' || mob.kind === 'skeleton') {
+              // Was `> 0.15`, which is true for most of the day — zombies and
+              // skeletons popped into view in the early evening well before it
+              // was actually dark, and once factor ticked past 0.15 on the
+              // first dusk they stayed visible even at noon the next day.
+              // `isNight` (> 0.5) is the same threshold everything else in the
+              // loop already keys hostility off.
+              mob.group.visible = isNight || mob.dead;
+            }
+            if (!mob.group.visible) continue;
+            updateMob(
+              mob, dt, camera.position, isNight, world.heightAt,
+              (dmg) => takeDamage(dmg),
+              (from, target) => {
+                const arrow = spawnArrow(from, target);
+                arrowsRef.current.push(arrow);
+                scene.add(arrow.mesh);
+              },
+              mobsRef.current,
+              // The mob-only collider (see world.ts) — the one thing this
+              // adds over the player's own isSolidAt is the house's doorway
+              // opening, which is solid to every mob so zombies can't wander
+              // in at night and the guide can't wander out.
+              world.isMobSolidAt,
+            );
           }
-          if (!mob.group.visible) continue;
-          updateMob(
-            mob, dt, camera.position, isNight && !paused, world.heightAt,
-            (dmg) => takeDamage(dmg),
-            (from, target) => {
-              const arrow = spawnArrow(from, target);
-              arrowsRef.current.push(arrow);
-              scene.add(arrow.mesh);
-            },
-            mobsRef.current,
-            world.isSolidAt,
-          );
+
+          // Dead mobs used to stay in the array (and the scene) forever: the
+          // death animation ran once, `updateMob` kept iterating and
+          // early-returning for them every frame after, and their sunk
+          // geometry was never removed from the scene graph.
+          mobsRef.current = mobsRef.current.filter((mob) => {
+            if (mob.dead && mob.deathTimer <= 0) {
+              scene.remove(mob.group);
+              mob.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
+              return false;
+            }
+            return true;
+          });
+
+          arrowsRef.current = arrowsRef.current.filter((arrow) => {
+            const done = updateArrow(arrow, dt, camera.position, (dmg) => takeDamage(dmg), world.isMobSolidAt);
+            if (done) scene.remove(arrow.mesh);
+            return !done;
+          });
+
+          dropsRef.current = dropsRef.current.filter((drop) => {
+            const done = updateDrop(drop, dt, controller.feet, world.isSolidAt, collect);
+            if (done) { scene.remove(drop.mesh); drop.mesh.geometry.dispose(); }
+            return !done;
+          });
         }
 
-        // Dead mobs used to stay in the array (and the scene) forever: the
-        // death animation ran once, `updateMob` kept iterating and
-        // early-returning for them every frame after, and their sunk
-        // geometry was never removed from the scene graph.
-        mobsRef.current = mobsRef.current.filter((mob) => {
-          if (mob.dead && mob.deathTimer <= 0) {
-            scene.remove(mob.group);
-            mob.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
-            return false;
-          }
-          return true;
-        });
-
-        arrowsRef.current = arrowsRef.current.filter((arrow) => {
-          const done = updateArrow(arrow, dt, camera.position, (dmg) => takeDamage(dmg), world.isSolidAt);
-          if (done) scene.remove(arrow.mesh);
-          return !done;
-        });
-
-        dropsRef.current = dropsRef.current.filter((drop) => {
-          const done = updateDrop(drop, dt, controller.feet, world.isSolidAt, collect);
-          if (done) { scene.remove(drop.mesh); drop.mesh.geometry.dispose(); }
-          return !done;
-        });
+        /*
+         * While the chat is open the guide is otherwise completely frozen —
+         * it's a mob, and the pause fix above (see takeDamage/#32) correctly
+         * stops every mob's update while `paused` is true, which is exactly
+         * what should happen for combat and wandering. But applied to the
+         * one mob the player is actively looking at and talking to, "frozen"
+         * reads as broken: it keeps facing whatever direction it happened to
+         * be walking when the chat opened, and its arms/legs stay locked
+         * mid-stride. This runs even while paused (npcOpen implies paused)
+         * to fix exactly that: turn to face the player, plant the feet, and
+         * play a small idle arm-sway instead of a static mannequin pose.
+         */
+        const guide = guideRef.current;
+        if (guide && npcOpenRef.current && !guide.dead) {
+          const dx = camera.position.x - guide.pos.x;
+          const dz = camera.position.z - guide.pos.z;
+          if (dx * dx + dz * dz > 0.0001) guide.group.rotation.y = Math.atan2(dx, dz);
+          const t = now / 1000;
+          guide.parts.leftArm.rotation.x = Math.sin(t * 2.2) * 0.18;
+          guide.parts.rightArm.rotation.x = -Math.sin(t * 2.2) * 0.18;
+          guide.parts.leftLeg.rotation.x = 0;
+          guide.parts.rightLeg.rotation.x = 0;
+          guide.group.position.copy(guide.pos);
+        }
 
         // The chest's lid/glow, the ambience (footsteps, birds, crickets,
         // wind, night drone) and the panel depth-of-field were all fully
@@ -620,6 +714,32 @@ export default function Game() {
         // "drifting cloud slabs" comment. A slow, wrapping drift of the
         // whole layer is enough to sell it without tracking each cloud.
         world.clouds.position.x = ((now / 1000) * 0.4) % 200 - 100;
+
+        /*
+         * The guide's speech bubble is positioned imperatively, not through
+         * React state — projecting a moving 3D point to screen space is a
+         * per-frame calculation, and running it through setState would
+         * re-render this whole component 60 times a second for a div that
+         * only actually needs new *text* on the rare occasions the bubble's
+         * content changes (which IS state — see npcBubble/onBubble).
+         */
+        const bubbleEl = bubbleElRef.current;
+        if (bubbleEl) {
+          if (guide && !guide.dead && npcBubbleRef.current) {
+            bubbleVec.set(guide.pos.x, guide.pos.y + 2.1, guide.pos.z).project(camera);
+            if (bubbleVec.z < 1) {
+              const sx = (bubbleVec.x * 0.5 + 0.5) * el.clientWidth;
+              const sy = (1 - (bubbleVec.y * 0.5 + 0.5)) * el.clientHeight;
+              bubbleEl.style.display = 'block';
+              bubbleEl.style.left = `${sx}px`;
+              bubbleEl.style.top = `${sy}px`;
+            } else {
+              bubbleEl.style.display = 'none';
+            }
+          } else {
+            bubbleEl.style.display = 'none';
+          }
+        }
 
         postfx.composer.render();
 
@@ -690,9 +810,9 @@ export default function Game() {
     if (!it) return '';
     switch (it.kind) {
       case 'bed': return 'Sleep';
-      case 'craft': return 'Crafting table';
       case 'chest': return 'Open the chest';
       case 'map': return 'My journey';
+      case 'npc': return `Talk to ${NPC_NAME}`;
       default: return `Read “${it.name}”`;
     }
   };
@@ -713,6 +833,27 @@ export default function Game() {
         onPull={() => setNight((n) => !n)}
         ariaLabel={`Switch to ${night ? 'day' : 'night'}`}
         className="world-pullcord"
+      />
+
+      {/*
+        The guide's head bubble. Always mounted (so the ref survives) but
+        hidden by default — its position is set imperatively every frame in
+        the render loop from a world-to-screen projection of the guide's
+        head, not by React layout, since that has to track a moving 3D
+        object rather than sit at a fixed place in the DOM.
+      */}
+      <div ref={bubbleElRef} className="voxel-npc-bubble" aria-live="polite">
+        {npcBubble}
+      </div>
+
+      <NpcChat
+        open={npcOpen}
+        npcName={NPC_NAME}
+        onClose={() => {
+          setNpcOpen(false);
+          controllerRef.current?.controls.lock();
+        }}
+        onBubble={setNpcBubble}
       />
 
       {locked && !dead && (
@@ -764,30 +905,6 @@ export default function Game() {
         <div className="voxel-sleep"><p>Sleeping…</p></div>
       )}
 
-      {panel === '__craft' && (
-        <div className="voxel-modal">
-          <div className="voxel-modal-inner">
-            <p className="t-heading-md text-bone">Crafting table</p>
-            <div className="flex flex-col gap-[10px]">
-              {RECIPES.map((r) => {
-                const ok = canCraft(inventory, r);
-                return (
-                  <button key={r.id} type="button" disabled={!ok}
-                    onClick={() => craftRecipe(r.id)} className="voxel-recipe" data-ok={ok}>
-                    <img className="voxel-icon-sm" src={blockIconUrl(r.output.block)} alt="" aria-hidden />
-                    <span>{r.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <button type="button" className="voxel-hint underline underline-offset-4"
-              onClick={() => { setPanel(null); controllerRef.current?.controls.lock(); }}>
-              Close (E)
-            </button>
-          </div>
-        </div>
-      )}
-
       {panel === '__chest' && (
         <div className="voxel-modal">
           <div className="voxel-modal-inner voxel-modal-wide">
@@ -833,9 +950,30 @@ export default function Game() {
 
       {openProject && (
         <div className="voxel-modal">
-          <div className="voxel-modal-inner voxel-modal-wide">
+          <div className="voxel-modal-inner voxel-modal-wide voxel-project-modal">
             <p className="t-heading-md text-bone">{openProject.name}</p>
-            <p className="voxel-body">{openProject.blurb}</p>
+            <p className="voxel-project-meta">{openProject.year} · {openProject.context}</p>
+            <div className="voxel-project-scroll" data-lenis-prevent onWheel={(e) => e.stopPropagation()}>
+              <p className="voxel-body voxel-project-blurb">{openProject.blurb}</p>
+              {projectParas.map(([head, text], i) => (
+                <div key={i} className="voxel-project-para">
+                  {head && <p className="voxel-project-head">{head}</p>}
+                  <p className="voxel-body">{text}</p>
+                </div>
+              ))}
+              {!!openProject.tech?.length && (
+                <p className="voxel-project-tech">{openProject.tech.join(' · ')}</p>
+              )}
+              {!!openProject.links?.length && (
+                <div className="voxel-project-links">
+                  {openProject.links.map((l) => (
+                    <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="voxel-link-inline">
+                      {l.label} ↗
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
             <button type="button" className="voxel-hint underline underline-offset-4"
               onClick={() => { setPanel(null); controllerRef.current?.controls.lock(); }}>
               Close (E)
@@ -844,13 +982,14 @@ export default function Game() {
         </div>
       )}
 
-      {!locked && !dead && !panel && !sleeping && ready && (
+      {!locked && !dead && !panel && !sleeping && !npcOpen && ready && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-[18px] bg-black/55 text-center">
           <p className="t-heading-md text-bone">The island</p>
           <p className="voxel-hint max-w-[48ch]">
             WASD to walk · mouse to look · space to jump · shift to sprint · hold left-click to mine ·
-            right-click to place · 1–9 or scroll to pick a slot · C to switch view · E to read a board, open the chest, check the map, craft, or sleep ·
-            pull the cord for night. Nothing you dig or build is saved.
+            right-click to place · 1–9 or scroll to pick a slot · C to switch view · E to read a board, open
+            the chest, check the map, talk to {NPC_NAME}, or sleep · pull the cord for night. Nothing you dig
+            or build is saved.
           </p>
           <button type="button" onClick={() => { audioRef.current?.start(); controllerRef.current?.controls.lock(); }}
             className="rounded-full bg-iris px-[22px] py-[11px] text-[14px] text-white transition-opacity hover:opacity-85">
