@@ -168,8 +168,17 @@ function paintTile(
  */
 let atlasCanvas: HTMLCanvasElement | null = null;
 
+/*
+ * In dev, Vite's module cache survives a hot reload, so this module-level
+ * singleton used to keep serving the atlas painted on the *first* load —
+ * editing a colour in `paintAll` and saving appeared to do nothing until the
+ * dev server was restarted. Skipping the cache in dev costs one extra canvas
+ * paint per HMR update, which is free; production keeps the real cache.
+ */
+const IS_DEV = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
+
 function getAtlasCanvas(): HTMLCanvasElement {
-  if (atlasCanvas) return atlasCanvas;
+  if (atlasCanvas && !IS_DEV) return atlasCanvas;
   const canvas = document.createElement('canvas');
   canvas.width = ATLAS_W;
   canvas.height = ATLAS_H;

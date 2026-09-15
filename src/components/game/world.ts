@@ -450,6 +450,17 @@ export type BuiltWorld = {
    * missing so the loading screen knows when the spawn area is ready.
    */
   updateStreaming: (px: number, pz: number, budget?: number) => { built: number; total: number; ready: number };
+  /** The drifting cloud layer, so Game.tsx can animate it — see buildClouds(). */
+  clouds: THREE.Group;
+  /**
+   * Frees every GPU resource this world owns: all built terrain chunks, the
+   * water, the chest/map/bed/sign meshes and — critically — the ~16 baked
+   * canvas textures behind the project + name signs, none of which were ever
+   * disposed before. `renderer.dispose()` alone does not walk the scene
+   * graph disposing materials/textures, so every visit to `/game` leaked a
+   * fresh set of these.
+   */
+  dispose: () => void;
 };
 
 export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
@@ -762,7 +773,8 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
 
   // Furniture and sky, added as meshes rather than blocks.
   group.add(buildBedMesh(house.bedPos.x, house.baseY + 1, house.bedPos.z));
-  group.add(buildClouds());
+  const clouds = buildClouds();
+  group.add(clouds);
 
   // One extra sign by the door: whose world this is.
   const nameSign = buildSignMesh(profile.name, profile.title, true);
@@ -806,6 +818,17 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   const breakBlock = (x: number, y: number, z: number): Block | null => {
     const b = getBlock(x, y, z);
     if (b === Block.AIR) return null;
+    /*
+     * The bed is two things at once: these overlay voxels (which drive the
+     * world mesh's face-culling around it) and a separate decorative
+     * `buildBedMesh` group added straight to `group`. Mining the voxels used
+     * to leave the world mesh with a hole where the bed was while the
+     * decorative mesh kept floating over it — and `bedPos` still pointed at
+     * the now-empty spot, so the sleep prompt kept appearing over nothing.
+     * The bed was never meant to be minable in the first place, so the fix
+     * is simply to refuse.
+     */
+    if (b === Block.BEDRED || b === Block.BEDWHITE) return null;
     const k = key(x, y, z);
     if (overlay.has(k)) overlay.delete(k);
     else removed.add(k);
@@ -824,6 +847,37 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
     touch(x, y, z);
     updateStreaming(x, z, 9);
     return true;
+  };
+
+  function disposeMaterial(mat: THREE.Material) {
+    const m = mat as unknown as Record<string, unknown>;
+    for (const k of ['map', 'alphaMap', 'aoMap', 'bumpMap', 'emissiveMap', 'normalMap', 'roughnessMap', 'metalnessMap']) {
+      const tex = m[k] as THREE.Texture | undefined;
+      tex?.dispose?.();
+    }
+    mat.dispose();
+  }
+
+  function disposeObject(obj: THREE.Object3D) {
+    obj.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      mesh.geometry?.dispose?.();
+      const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach(disposeMaterial);
+      else if (mat) disposeMaterial(mat);
+    });
+  }
+
+  const dispose = () => {
+    for (const k of chunks.keys()) disposeChunk(k);
+    // The board and name signs each carry their own baked CanvasTexture and
+    // MeshBasicMaterial (~16 of them for a full project list) — these are
+    // the leak in bug #22, and disposeObject walks every mesh under `group`
+    // (signs, chest, map board, bed, clouds) to free them all.
+    disposeObject(group);
+    water.dispose();
+    disposeMaterial(opaqueMat);
+    disposeMaterial(transMat);
   };
 
   return {
@@ -852,6 +906,8 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
     placeBlock,
     isInBounds: inBounds,
     updateStreaming,
+    clouds,
+    dispose,
   };
 }
 

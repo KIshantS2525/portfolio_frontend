@@ -26,8 +26,10 @@ export class Torches {
   private lights: THREE.PointLight[] = [];
   private flameMat: THREE.MeshBasicMaterial;
   private stickMat: THREE.MeshLambertMaterial;
+  private scene: THREE.Scene;
 
   constructor(scene: THREE.Scene) {
+    this.scene = scene;
     this.group.name = 'torches';
     scene.add(this.group);
 
@@ -86,5 +88,25 @@ export class Torches {
     }
     this.flameMat.color.setHex(0xffb347).multiplyScalar(0.6 + lit * 0.7);
     void dt;
+  }
+
+  /**
+   * Removes the pooled lights and the torch group from the scene, and frees
+   * their geometry/materials. There was no dispose() at all before — the 6
+   * pooled PointLights (each with real cost across every lit material in
+   * range) and every torch mesh just stayed in the scene graph forever after
+   * the game unmounted.
+   */
+  dispose() {
+    for (const light of this.lights) this.scene.remove(light);
+    this.lights.length = 0;
+    this.scene.remove(this.group);
+    this.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      mesh.geometry?.dispose?.();
+    });
+    this.flameMat.dispose();
+    this.stickMat.dispose();
+    this.torches.length = 0;
   }
 }

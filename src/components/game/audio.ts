@@ -24,6 +24,8 @@ export class GameAudio {
   private stepTimer = 0;
   private started = false;
   muted = false;
+  /** True while the game is paused (pointer unlocked, dead, or off-screen) — every sound is gated on this too. */
+  private paused = false;
 
   /** Must be called from a user gesture (the click that locks the pointer). */
   start() {
@@ -85,6 +87,23 @@ export class GameAudio {
     if (this.master) this.master.gain.value = m ? 0 : 0.35;
   }
 
+  /**
+   * Suspends (or resumes) the whole AudioContext. Nothing here previously
+   * reacted to the game being paused — stepping out with Esc, dying, or the
+   * tab losing the pointer lock all left the wind, drone, footsteps and
+   * ambience running exactly as if play had never stopped. `suspend()` stops
+   * *all* audio processing (cheap and instant), not just gain-to-zero, which
+   * also stops the CPU work of running the graph while nothing is meant to
+   * be audible.
+   */
+  setPaused(p: boolean) {
+    if (this.paused === p) return;
+    this.paused = p;
+    if (!this.ctx) return;
+    if (p) void this.ctx.suspend();
+    else if (!this.muted) void this.ctx.resume();
+  }
+
   private env(node: AudioNode, gain: GainNode, attack: number, decay: number, peak: number) {
     const ctx = this.ctx!;
     const t = ctx.currentTime;
@@ -97,7 +116,7 @@ export class GameAudio {
   /** A short filtered-noise burst — the basis for footsteps and impacts. */
   private burst(freq: number, q: number, attack: number, decay: number, peak: number, type: BiquadFilterType = 'bandpass') {
     const ctx = this.ctx;
-    if (!ctx || !this.noiseBuffer || !this.master || this.muted) return;
+    if (!ctx || !this.noiseBuffer || !this.master || this.muted || this.paused) return;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
     const filt = ctx.createBiquadFilter();
@@ -114,7 +133,7 @@ export class GameAudio {
   /** A short pitched blip — birds, crickets, UI. */
   private tone(freq: number, dur: number, peak: number, type: OscillatorType = 'sine', slideTo?: number) {
     const ctx = this.ctx;
-    if (!ctx || !this.master || this.muted) return;
+    if (!ctx || !this.master || this.muted || this.paused) return;
     const osc = ctx.createOscillator();
     osc.type = type;
     const t = ctx.currentTime;
@@ -146,7 +165,7 @@ export class GameAudio {
    * Called every frame; the timers keep the calls sparse.
    */
   update(dt: number, nightFactor: number, moving: boolean, inWater: boolean) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || this.paused) return;
     if (this.nightGain) this.nightGain.gain.value = nightFactor * 0.55;
     if (this.windGain) this.windGain.gain.value = 0.07 + nightFactor * 0.07;
 

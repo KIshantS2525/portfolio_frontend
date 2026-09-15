@@ -32,8 +32,14 @@ void main() {
 
   // Two wave trains at an angle to each other. Crossing them stops the
   // surface reading as a single rolling corrugation.
+  // The plane's own rotation (baked into its vertex positions before this
+  // shader ever sees them) puts the second grid axis in p.z, not p.y — the
+  // geometry was authored flat in XY, then rotateX(-90°) folded that Y into
+  // Z so the plane lies in the XZ ground plane. p.y is always 0 here. Reading
+  // p.y made the second wave a function of p.x alone, same as the first, so
+  // the two trains ran parallel instead of crossing.
   float w1 = sin(p.x * 0.55 + uTime * 1.1) * 0.5;
-  float w2 = sin((p.x * 0.31 + p.y * 0.42) - uTime * 0.8) * 0.5;
+  float w2 = sin((p.x * 0.31 + p.z * 0.42) - uTime * 0.8) * 0.5;
   vWave = w1 + w2;
   p.z += vWave * 0.09;
 

@@ -13,7 +13,7 @@ import { DayNight } from '@/components/game/dayNight';
 import { Torches } from '@/components/game/torches';
 import { createPostFX, type PostFX } from '@/components/game/postfx';
 import {
-  spawnMob, updateMob, hitMob, spawnArrow, updateArrow,
+  spawnMob, updateMob, hitMob, spawnArrow, updateArrow, resetOutfitCursor,
   type Mob, type MobKind, type Arrow,
 } from '@/components/game/mobs';
 import { spawnDrop, updateDrop, type Drop } from '@/components/game/drops';
@@ -55,9 +55,10 @@ export default function Game() {
   const selectedRef = useRef(0);
   const panelRef = useRef<string | null>(null);
   const interactRef = useRef<Interaction>(null);
+  const sleepTimerRef = useRef<number | null>(null);
 
   const profile = useProfile();
-  const { projects } = useProjects();
+  const { projects, ready: contentReady } = useProjects();
   const roles = useRoles();
 
   const [ready, setReady] = useState(false);
@@ -79,6 +80,13 @@ export default function Game() {
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { panelRef.current = panel; }, [panel]);
   useEffect(() => { interactRef.current = interaction; }, [interaction]);
+  // Stop (suspend) all sound whenever the game isn't actually being played:
+  // pointer unlocked (Esc, opening a panel, sleeping), dead, or not ready
+  // yet. Previously nothing gated ambience on pause at all — footsteps,
+  // wind, and the night drone kept running under the pause overlay.
+  useEffect(() => {
+    audioRef.current?.setPaused(!locked || dead);
+  }, [locked, dead]);
 
   const boardEntries = useMemo(
     () => projects.map((p) => ({ slug: p.slug, name: p.name, blurb: p.blurb })),
@@ -98,16 +106,39 @@ export default function Game() {
       window.setTimeout(() => { if (flash) flash.style.opacity = '0'; }, 160);
     }
     audioRef.current?.hurt();
-    if (hpRef.current <= 0) setDead(true);
+    if (hpRef.current <= 0) {
+      setDead(true);
+      // A mob could land the killing blow while the 1500ms sleep timer is
+      // still running (mobs are only gated on `paused`, and sleeping merely
+      // unlocks the pointer — it doesn't pause them). Without this, the
+      // sleeping overlay and the death screen rendered on top of each other
+      // simultaneously, and since the sleep timeout's own `setSleeping(false)`
+      // either already ran or was about to overwrite this, the sleeping
+      // overlay could get stuck on screen indefinitely after respawning.
+      setSleeping(false);
+      if (sleepTimerRef.current != null) {
+        window.clearTimeout(sleepTimerRef.current);
+        sleepTimerRef.current = null;
+      }
+    }
   }, []);
 
   const respawn = useCallback(() => {
     hpRef.current = MAX_HP;
     setHp(MAX_HP);
     setDead(false);
+    setSleeping(false);
     setNight(false);
-    const bed = worldRef.current?.house.bedPos;
-    if (bed && controllerRef.current) controllerRef.current.teleport(bed.x, bed.z + 2);
+    const world = worldRef.current;
+    const bed = world?.house.bedPos;
+    if (bed && world && controllerRef.current) {
+      // Drop from just above the bed's own height, not spawn's — the bed can
+      // sit meaningfully higher or lower than the original spawn point, and
+      // starting the settle-down search from the wrong height either buried
+      // the player in the floor or dropped them a long way.
+      const fromY = world.heightAt(bed.x, bed.z + 2) + 3;
+      controllerRef.current.teleport(bed.x, bed.z + 2, fromY);
+    }
   }, []);
 
   /** Returns whether the item fitted, so a full inventory leaves drops on the floor. */
@@ -133,17 +164,53 @@ export default function Game() {
   const sleep = useCallback(() => {
     setSleeping(true);
     controllerRef.current?.controls.unlock();
-    window.setTimeout(() => {
+    sleepTimerRef.current = window.setTimeout(() => {
+      sleepTimerRef.current = null;
       dayNightRef.current?.skipToMorning();
       setNight(false);
       hpRef.current = MAX_HP;
       setHp(MAX_HP);
       setSleeping(false);
-      controllerRef.current?.controls.lock();
+      /*
+       * No `controls.lock()` here. PointerLockControls.lock() calls
+       * `requestPointerLock()`, which browsers require to come from a direct
+       * user gesture — a setTimeout callback isn't one, so Chrome and
+       * Firefox silently ignore it. The player used to wake up with the
+       * pointer never re-locked, stuck looking at a black screen with no
+       * visible way back in until they guessed to click. Leaving `sleeping`
+       * false and `locked` false (already the case, since `unlock()` was
+       * called above) lets the normal "Click to enter" overlay reappear,
+       * which both explains what happened and re-locks on a real click.
+       */
     }, 1500);
   }, []);
 
   useEffect(() => {
+    /*
+     * Wait for the content fetch before building anything.
+     *
+     * This effect used to run once on mount (`[]` deps) and close over
+     * whatever `projects`/`profile` were on that very first render. But
+     * `useProjects()`/`useProfile()` start out on the *compiled* content.ts
+     * values and only switch to the live /api/content tree once that fetch
+     * resolves — which is asynchronous and essentially never wins the race
+     * against two nested requestAnimationFrame calls. In practice that meant
+     * the island was built from the static, build-time project list every
+     * single time, and adding or removing a project in the admin panel had
+     * no effect here no matter how many times the page was reloaded: by the
+     * time the fetch came back, the world (and its fixed number of notice
+     * boards, torches, and its mob/villager layout) already existed.
+     *
+     * Gating on `contentReady` and listing it as a dependency means this
+     * effect body runs as a no-op on the first (not-yet-loaded) render and
+     * then runs for real exactly once, the moment the store has an answer —
+     * whether that's the live backend tree or, if the backend is down or
+     * unseeded, the same static fallback as before. Either way the world is
+     * always built from whatever `projects` actually is by then, not from a
+     * value captured before it was known.
+     */
+    if (!contentReady) return;
+
     const el = host.current;
     if (!el) return;
 
@@ -184,6 +251,12 @@ export default function Game() {
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(72, el.clientWidth / el.clientHeight, 0.1, 220);
+
+      // Villagers pick their outfit from a module-level counter in mobs.ts;
+      // reset it here so every fresh world (including a remount after
+      // navigating away and back) starts the cycle from the same place
+      // instead of wherever a previous mount or a dev hot-reload left it.
+      resetOutfitCursor();
 
       const world = buildWorld(projects, profile);
       worldRef.current = world;
@@ -371,8 +444,16 @@ export default function Game() {
           if (panelRef.current) { setPanel(null); controller.controls.lock(); return; }
           const it = interactRef.current;
           if (!it || !controller.controls.isLocked) return;
+          // Opening any panel used to leave `mining`/`mineTarget` set if the
+          // player was holding left-click the moment they pressed E — the
+          // loop's `!paused` guard stopped the block actually breaking, but
+          // the break-progress ring stayed on screen over the panel until
+          // mouseup. Clearing it here matches what mouseup already does.
+          mining = false; mineTarget = null; mineT = 0; setBreakProgress(0);
           if (it.kind === 'board') { setPanel(it.slug); controller.controls.unlock(); }
           else if (it.kind === 'craft') { setPanel('__craft'); controller.controls.unlock(); }
+          else if (it.kind === 'chest') { setPanel('__chest'); controller.controls.unlock(); }
+          else if (it.kind === 'map') { setPanel('__map'); controller.controls.unlock(); }
           else if (it.kind === 'bed') sleep();
         }
       };
@@ -412,13 +493,25 @@ export default function Game() {
 
         // Nearest interactable, checked against the player rather than the
         // camera so looking away doesn't cancel a prompt you're standing on.
-        const feet = camera.position;
+        // `controller.feet` is the actual foot position — `camera.position`
+        // is eye height (and, in third person, up to 4.2 blocks further back
+        // still), which put every floor-level prompt out of range and made
+        // third person silently unable to interact with anything at all.
+        const feet = controller.feet;
         let found: Interaction = null;
         let bestD = INTERACT_R;
         const bedD = feet.distanceTo(world.house.bedPos);
         if (bedD < bestD) { bestD = bedD; found = { kind: 'bed' }; }
         const craftD = feet.distanceTo(world.craftingTablePos);
         if (craftD < bestD) { bestD = craftD; found = { kind: 'craft' }; }
+        // Chest and map were never added to this sweep at all — the modals
+        // for both exist in the JSX and both are reachable in principle, but
+        // interactRef could never actually become { kind: 'chest' | 'map' },
+        // so neither panel could ever open.
+        const chestD = feet.distanceTo(world.chestPos);
+        if (chestD < bestD) { bestD = chestD; found = { kind: 'chest' }; }
+        const mapD = feet.distanceTo(world.mapPos);
+        if (mapD < bestD) { bestD = mapD; found = { kind: 'map' }; }
         for (const b of world.boards) {
           const d = feet.distanceTo(b.position);
           if (d < bestD) {
@@ -466,14 +559,20 @@ export default function Game() {
         const isNight = dayNight.factor > 0.5;
         for (const mob of mobsRef.current) {
           if (mob.kind === 'zombie' || mob.kind === 'skeleton') {
-            mob.group.visible = dayNight.factor > 0.15 || mob.dead;
+            // Was `> 0.15`, which is true for most of the day — zombies and
+            // skeletons popped into view in the early evening well before it
+            // was actually dark, and once factor ticked past 0.15 on the
+            // first dusk they stayed visible even at noon the next day.
+            // `isNight` (> 0.5) is the same threshold everything else in the
+            // loop already keys hostility off.
+            mob.group.visible = isNight || mob.dead;
           }
           if (!mob.group.visible) continue;
           updateMob(
             mob, dt, camera.position, isNight && !paused, world.heightAt,
             (dmg) => takeDamage(dmg),
-            (from, d) => {
-              const arrow = spawnArrow(from, d);
+            (from, target) => {
+              const arrow = spawnArrow(from, target);
               arrowsRef.current.push(arrow);
               scene.add(arrow.mesh);
             },
@@ -482,8 +581,21 @@ export default function Game() {
           );
         }
 
+        // Dead mobs used to stay in the array (and the scene) forever: the
+        // death animation ran once, `updateMob` kept iterating and
+        // early-returning for them every frame after, and their sunk
+        // geometry was never removed from the scene graph.
+        mobsRef.current = mobsRef.current.filter((mob) => {
+          if (mob.dead && mob.deathTimer <= 0) {
+            scene.remove(mob.group);
+            mob.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
+            return false;
+          }
+          return true;
+        });
+
         arrowsRef.current = arrowsRef.current.filter((arrow) => {
-          const done = updateArrow(arrow, dt, camera.position, (dmg) => takeDamage(dmg));
+          const done = updateArrow(arrow, dt, camera.position, (dmg) => takeDamage(dmg), world.isSolidAt);
           if (done) scene.remove(arrow.mesh);
           return !done;
         });
@@ -493,6 +605,21 @@ export default function Game() {
           if (done) { scene.remove(drop.mesh); drop.mesh.geometry.dispose(); }
           return !done;
         });
+
+        // The chest's lid/glow, the ambience (footsteps, birds, crickets,
+        // wind, night drone) and the panel depth-of-field were all fully
+        // implemented but never actually driven from the loop — the chest
+        // never opened, the game was silent, and the BokehPass ran every
+        // frame as a permanent no-op passthrough.
+        world.chest.setOpen(panelRef.current === '__chest');
+        world.chest.update(dt, chestD < INTERACT_R, now / 1000);
+        audio.update(dt, dayNight.factor, controller.isMoving() && !paused, controller.isSwimming());
+        postfx.setFocus(panelRef.current ? 1 : 0, 6, dt);
+
+        // Clouds were added to the scene and never moved again, despite the
+        // "drifting cloud slabs" comment. A slow, wrapping drift of the
+        // whole layer is enough to sell it without tracking each cloud.
+        world.clouds.position.x = ((now / 1000) * 0.4) % 200 - 100;
 
         postfx.composer.render();
 
@@ -508,6 +635,10 @@ export default function Game() {
 
       teardown = () => {
         cancelAnimationFrame(raf);
+        if (sleepTimerRef.current != null) {
+          window.clearTimeout(sleepTimerRef.current);
+          sleepTimerRef.current = null;
+        }
         window.removeEventListener('resize', onResize);
         window.removeEventListener('keydown', onKeyDown);
         window.removeEventListener('mouseup', onMouseUp);
@@ -519,6 +650,16 @@ export default function Game() {
         controller.dispose();
         postfx.dispose();
         dayNight.dispose();
+        torches.dispose();
+        world.dispose();
+        // GameAudio.dispose() was never called anywhere — leaving /game left
+        // the AudioContext (wind, drone, and anything still scheduled)
+        // running in the background indefinitely, since nothing ever closed
+        // it. This is what actually stops the sound when the game closes.
+        audio.dispose();
+        for (const mob of mobsRef.current) mob.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
+        for (const arrow of arrowsRef.current) arrow.mesh.geometry.dispose();
+        for (const drop of dropsRef.current) drop.mesh.geometry.dispose();
         renderer.dispose();
         el.removeChild(renderer.domElement);
       };
@@ -534,8 +675,14 @@ export default function Game() {
       window.clearTimeout(kick);
       teardown?.();
     };
+    // profile/projects/roles are intentionally not in this list — once the
+    // world is built for a session it stays built (a live rebuild mid-play
+    // would tear down/regenerate the whole island under the player's feet).
+    // contentReady is the only signal this effect needs: it flips from
+    // false to true exactly once per mount, right when the real data is
+    // finally known.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [contentReady]);
 
 
   const hearts = Array.from({ length: 5 }, (_, i) => (hp > i * 2 + 1 ? 'full' : hp > i * 2 ? 'half' : 'empty'));

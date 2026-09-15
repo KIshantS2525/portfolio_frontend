@@ -37,6 +37,16 @@ export function paintSign(title: string, body: string, hero = false): THREE.Canv
   return tex;
 }
 
+/** Chops a single overlong word down to fit `maxWidth`, with a trailing ellipsis. */
+function truncateWord(ctx: CanvasRenderingContext2D, word: string, maxWidth: number): string {
+  if (ctx.measureText(word).width <= maxWidth) return word;
+  let cut = word;
+  while (cut.length > 1 && ctx.measureText(cut + '…').width > maxWidth) {
+    cut = cut.slice(0, -1);
+  }
+  return cut + '…';
+}
+
 function wrapText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -58,12 +68,25 @@ function wrapText(
       cy += lineHeight;
       lines += 1;
       if (lines >= maxLines) {
-        ctx.fillText(line + '…', x, cy);
+        ctx.fillText(truncateWord(ctx, line, maxWidth) , x, cy);
         return;
       }
+    } else if (!line && ctx.measureText(word).width > maxWidth) {
+      // The word alone is wider than the board — the `&& line` guard above
+      // never fires for it (there's no previous line to flush yet), so
+      // without this branch it was written straight past the edge of the
+      // canvas with no wrap or truncation at all.
+      lines += 1;
+      if (lines >= maxLines) {
+        ctx.fillText(truncateWord(ctx, word, maxWidth), x, cy);
+        return;
+      }
+      ctx.fillText(truncateWord(ctx, word, maxWidth), x, cy);
+      cy += lineHeight;
+      line = '';
     } else {
       line = test;
     }
   }
-  if (line) ctx.fillText(line, x, cy);
+  if (line) ctx.fillText(truncateWord(ctx, line, maxWidth), x, cy);
 }

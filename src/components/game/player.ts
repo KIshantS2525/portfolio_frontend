@@ -73,7 +73,16 @@ export type PlayerController = {
    * measuring from the wrong place.
    */
   feet: THREE.Vector3;
-  teleport: (x: number, z: number) => void;
+  /**
+   * Drops the player at (x, z), settling onto the ground below `fromY`.
+   * `fromY` defaults to the original spawn height — fine for the spawn
+   * point itself, but wrong for anywhere else on the terrain: respawning at
+   * the bed used to start the drop-and-settle search from spawn's height
+   * rather than the bed's, so on a map where the bed sits meaningfully
+   * higher or lower than spawn the player could respawn embedded in the
+   * ground or fall a long way before the collision guard caught them.
+   */
+  teleport: (x: number, z: number, fromY?: number) => void;
   swordGroup: THREE.Group;
   swing: () => void;
   isSwimming: () => boolean;
@@ -420,8 +429,8 @@ export function createPlayerController(
   }
 
   /** Drops the player at a column, from just above it, and lets gravity settle them. */
-  function teleport(x: number, z: number) {
-    feet.set(x, spawn.y, z);
+  function teleport(x: number, z: number, fromY: number = spawn.y) {
+    feet.set(x, fromY, z);
     // Lift out of anything solid rather than spawning embedded in a wall.
     let guard = 0;
     while (blocked(feet.x, feet.y, feet.z) && guard++ < 64) feet.y += 1;

@@ -188,8 +188,8 @@ export function useAchievements(): Achievement[] {
  * projects (ones with slugs not already in content.ts) on top of the
  * canonical static order — newest additions lead.
  */
-export function useProjects(): { projects: Project[]; extraCount: number } {
-  const { content } = useContent();
+export function useProjects(): { projects: Project[]; extraCount: number; ready: boolean } {
+  const { content, ready } = useContent();
   const known = new Set(staticProjects.map((p) => p.slug));
   const extra = content.projects.filter((p) => !known.has(p.slug));
   const merged =
@@ -199,5 +199,5 @@ export function useProjects(): { projects: Project[]; extraCount: number } {
     content.projects.length >= staticProjects.length
       ? content.projects
       : [...extra, ...staticProjects];
-  return { projects: merged, extraCount: extra.length };
+  return { projects: merged, extraCount: extra.length, ready };
 }

@@ -235,6 +235,17 @@ export class DayNight {
   }
 
   dispose() {
+    // The two shadow-casting directional lights (with 2048px/1024px shadow
+    // maps) and the ambient hemi light were added to the scene in the
+    // constructor and never removed — only the sky was disposed here before,
+    // so every light and its GPU-side shadow map leaked on unmount.
+    this.scene.remove(this.sun, this.sun.target, this.moon, this.moon.target, this.ambient);
+    // Lights have no dispose() of their own in three.js, but their shadow
+    // map is a real WebGLRenderTarget allocated lazily by the renderer —
+    // that's the actual GPU memory that was leaking, not the light object.
+    this.sun.shadow.map?.dispose();
+    this.moon.shadow.map?.dispose();
+    if (this.scene.fog) this.scene.fog = null;
     this.sky.dispose();
   }
 }

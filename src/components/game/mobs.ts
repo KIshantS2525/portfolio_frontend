@@ -185,6 +185,18 @@ const OUTFITS: { coat: number; shirt: number; trouser: number; scarf: number; ha
 ];
 let outfitCursor = 0;
 
+/**
+ * Resets the villager outfit cycle. Call this once at the start of building
+ * a fresh world/village. Without it, `outfitCursor` — a module-level
+ * counter — keeps incrementing across dev hot-reloads (the module doesn't
+ * re-execute, so the counter survives) and across remounts (navigating away
+ * from /game and back), so villagers pick up wherever the counter was left
+ * rather than starting from the same outfit each time the village is built.
+ */
+export function resetOutfitCursor() {
+  outfitCursor = 0;
+}
+
 function buildVillagerRig(): Mob['parts'] & { group: THREE.Group } {
   const group = new THREE.Group();
   const o = OUTFITS[outfitCursor++ % OUTFITS.length];
@@ -371,7 +383,7 @@ export function updateMob(
   isNight: boolean,
   heightAt: (x: number, z: number) => number,
   onAttack: (dmg: number) => void,
-  onShoot?: (from: THREE.Vector3, dir: THREE.Vector2) => void,
+  onShoot?: (from: THREE.Vector3, target: THREE.Vector3) => void,
   /** Everything else alive, so mobs can target each other rather than only the player. */
   others?: Mob[],
   /** Voxel collider, so mobs respect walls like the player does. */
@@ -406,7 +418,7 @@ export function updateMob(
       const to = new THREE.Vector2(target.pos.x - mob.pos.x, target.pos.z - mob.pos.z);
       if (to.length() > 1.6) gmove = to.clone().normalize();
       else if (mob.attackCooldown <= 0) {
-        hitMob(target, 12, to.clone().normalize());
+        hitMob(target, 12, to.clone().normalize(), isSolid);
         mob.attackCooldown = 1.4;
         mob.parts.rightArm.rotation.x = -1.6;
       }
@@ -424,6 +436,8 @@ export function updateMob(
   let dist = toPlayer.length();
   let aimAtPlayer = true;
   let aim = toPlayer;
+  /** The real 3D position being aimed at, for the bow — not just the horizontal direction. */
+  let aimTarget = playerPos;
 
   // Hostiles prefer whichever is closer: the player, or a villager.
   if (HOSTILE.has(mob.kind) && others) {
@@ -434,6 +448,7 @@ export function updateMob(
         dist = d;
         aim = new THREE.Vector2(o.pos.x - mob.pos.x, o.pos.z - mob.pos.z);
         aimAtPlayer = false;
+        aimTarget = o.pos;
       }
     }
   }
@@ -445,7 +460,10 @@ export function updateMob(
     if (dist > BOW_MAX) move = aim.clone().normalize();
     else if (dist < BOW_MIN) move = aim.clone().normalize().multiplyScalar(-1);
     if (aimAtPlayer && dist < BOW_RANGE && mob.attackCooldown <= 0 && onShoot) {
-      onShoot(mob.pos.clone().setY(mob.pos.y + 1.4), aim.clone().normalize());
+      // Full 3D target, not just the horizontal direction — a skeleton
+      // shooting from a hill used to send every arrow dead level, so it
+      // could never actually hit anyone standing below it.
+      onShoot(mob.pos.clone().setY(mob.pos.y + 1.4), aimTarget.clone().setY(aimTarget.y + 1.2));
       mob.attackCooldown = 1.7;
     }
     if (dist < ATTACK_R && mob.attackCooldown <= 0) {
@@ -601,11 +619,27 @@ function animate(mob: Mob, move: THREE.Vector2, dt: number) {
   mob.group.position.copy(mob.pos);
 }
 
-export function hitMob(mob: Mob, dmg: number, knockDir: THREE.Vector2) {
+export function hitMob(
+  mob: Mob,
+  dmg: number,
+  knockDir: THREE.Vector2,
+  /**
+   * Voxel collider. Without it, knockback teleported the mob straight into
+   * whatever was behind it — a mob hit against a wall got shoved 0.6 blocks
+   * into the geometry, and the *next* frame's `applyMove` safety net (which
+   * only ever lifts things straight up) read that as being stuck and
+   * launched it skyward instead of just stopping it at the wall.
+   */
+  isSolid?: (x: number, y: number, z: number) => boolean,
+) {
   if (mob.dead) return;
   mob.hp -= dmg;
-  mob.pos.x += knockDir.x * 0.6;
-  mob.pos.z += knockDir.y * 0.6;
+  const nx = mob.pos.x + knockDir.x * 0.6;
+  const nz = mob.pos.z + knockDir.y * 0.6;
+  if (!isSolid || !isSolid(Math.floor(nx), Math.floor(mob.pos.y), Math.floor(nz))) {
+    mob.pos.x = nx;
+    mob.pos.z = nz;
+  }
   mob.hitCooldown = 0.25;
   if (mob.hp <= 0) {
     mob.dead = true;
@@ -619,30 +653,67 @@ export type Arrow = { mesh: THREE.Mesh; pos: THREE.Vector3; vel: THREE.Vector3; 
 
 const ARROW_SPEED = 13;
 const ARROW_LIFE = 3;
+const ARROW_GRAVITY = 6;
 
-export function spawnArrow(from: THREE.Vector3, dir2: THREE.Vector2): Arrow {
+/**
+ * `target` is a real 3D point now, not just a horizontal direction — a
+ * skeleton on a ledge used to fire perfectly flat (`vel.y = 0`), so it
+ * always missed anyone standing below or above it. The initial velocity now
+ * points straight at wherever the target was the instant the shot was
+ * loosed, and gravity (added in `updateArrow`) pulls it down from there —
+ * not a full ballistic solve, but enough that the skeleton on the hill is no
+ * longer harmless.
+ */
+export function spawnArrow(from: THREE.Vector3, target: THREE.Vector3): Arrow {
   const geo = new THREE.CylinderGeometry(0.03, 0.03, 0.5, 5);
   geo.rotateX(Math.PI / 2);
   const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x3a2a18 }));
   mesh.position.copy(from);
-  const angle = Math.atan2(dir2.x, dir2.y);
-  mesh.rotation.y = angle;
+  const dir3 = target.clone().sub(from).normalize();
+  // Cylinder's local axis is +Z after the rotateX above; point it at the target.
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir3);
   return {
     mesh,
     pos: from.clone(),
-    vel: new THREE.Vector3(dir2.x, 0, dir2.y).multiplyScalar(ARROW_SPEED),
+    vel: dir3.multiplyScalar(ARROW_SPEED),
     life: ARROW_LIFE,
   };
 }
 
-/** Returns true if the arrow should be removed this frame (hit or expired). */
-export function updateArrow(arrow: Arrow, dt: number, playerPos: THREE.Vector3, onHit: (dmg: number) => void): boolean {
+/** Returns true if the arrow should be removed this frame (hit, blocked, or expired). */
+export function updateArrow(
+  arrow: Arrow,
+  dt: number,
+  playerPos: THREE.Vector3,
+  onHit: (dmg: number) => void,
+  /** Voxel collider — without this, arrows flew straight through every wall and cliff. */
+  isSolid?: (x: number, y: number, z: number) => boolean,
+): boolean {
   arrow.life -= dt;
+  arrow.vel.y -= ARROW_GRAVITY * dt;
+  const prev = arrow.pos.clone();
   arrow.pos.addScaledVector(arrow.vel, dt);
   arrow.mesh.position.copy(arrow.pos);
+  // Re-orient along the (now curving) velocity so the shaft keeps pointing
+  // the way it's actually flying instead of the way it was launched.
+  if (arrow.vel.lengthSq() > 1e-6) {
+    arrow.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), arrow.vel.clone().normalize());
+  }
   if (arrow.pos.distanceTo(playerPos) < 0.7) {
     onHit(1);
     return true;
+  }
+  if (isSolid) {
+    // Sample along the segment just travelled rather than only the endpoint,
+    // so a fast arrow can't tunnel clean through a one-block-thin wall.
+    const steps = Math.max(1, Math.ceil(prev.distanceTo(arrow.pos) / 0.25));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = Math.floor(THREE.MathUtils.lerp(prev.x, arrow.pos.x, t));
+      const y = Math.floor(THREE.MathUtils.lerp(prev.y, arrow.pos.y, t));
+      const z = Math.floor(THREE.MathUtils.lerp(prev.z, arrow.pos.z, t));
+      if (isSolid(x, y, z)) return true;
+    }
   }
   return arrow.life <= 0;
 }
