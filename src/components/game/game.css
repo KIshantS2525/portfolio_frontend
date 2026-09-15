@@ -302,3 +302,85 @@
   80% { opacity: 1; }
   100% { opacity: 0.9; }
 }
+
+.voxel-clock {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.voxel-mute {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.voxel-mute:hover { opacity: 0.9; }
+
+.voxel-chest-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.voxel-link {
+  display: block;
+  padding: 9px 12px;
+  border: 2px solid #0d0b09;
+  background: rgba(120, 114, 104, 0.28);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.16),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.5);
+  font-family: var(--font-sans, ui-sans-serif);
+  font-size: 13px;
+  color: var(--hud-ink);
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.voxel-link:hover { background: rgba(226, 219, 202, 0.24); }
+
+.voxel-journey {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.voxel-journey li {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: 12px;
+  font-family: var(--font-sans, ui-sans-serif);
+  /* A rule down the left edge reads as a path on a map, which is the
+     metaphor the physical map board outside is setting up. */
+  border-left: 2px solid rgba(244, 239, 226, 0.22);
+  padding-left: 12px;
+}
+.voxel-journey-when {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  color: var(--hud-ink);
+}
+.voxel-journey-what {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 14px;
+  color: rgba(244, 239, 226, 0.9);
+}
+.voxel-journey-what em {
+  font-style: normal;
+  font-size: 12.5px;
+  line-height: 1.55;
+  opacity: 0.72;
+}

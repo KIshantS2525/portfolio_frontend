@@ -19,9 +19,9 @@ import { Block, blockBoxGeometry } from '@/components/game/blocks';
 
 const SIZE = 0.26;
 const GRAVITY = 18;
-const MAGNET = 2.2;
+const MAGNET = 2.6;
 const MAGNET_PULL = 9;
-const PICKUP = 0.55;
+const PICKUP = 0.95;
 const LIFETIME = 120; // seconds before an uncollected drop gives up
 const SPAWN_DELAY = 0.35; // can't be hoovered up before it's left the block
 
@@ -66,7 +66,11 @@ export function updateDrop(
   drop.age += dt;
   if (drop.age > LIFETIME) return true;
 
-  const toPlayer = playerFeet.clone().setY(playerFeet.y + 0.6).sub(drop.pos);
+  // Aim at mid-shin, not the head. `playerFeet` is the body's base, so a
+  // small lift is all that's wanted here — the previous version was handed a
+  // camera position and then added *another* 0.6 on top, putting the target
+  // over two metres above the item and making pickup unreachable.
+  const toPlayer = playerFeet.clone().setY(playerFeet.y + 0.35).sub(drop.pos);
   const dist = toPlayer.length();
 
   if (drop.age > SPAWN_DELAY && dist < PICKUP) {

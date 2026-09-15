@@ -64,10 +64,26 @@ export type PlayerController = {
   update: (dt: number) => void;
   /** The camera's eye position — kept for the raycasts and mob checks in Game.tsx. */
   position: THREE.Vector3;
+  /**
+   * The player's FEET, in world space.
+   *
+   * Exposed because `position` is the camera, and in third person the camera
+   * is several metres behind the body — anything that means "where the player
+   * is standing" (item pickup, proximity prompts) has to use this or it is
+   * measuring from the wrong place.
+   */
+  feet: THREE.Vector3;
   teleport: (x: number, z: number) => void;
   swordGroup: THREE.Group;
   swing: () => void;
   isSwimming: () => boolean;
+  /** True when the player is actually walking, for footstep timing. */
+  isMoving: () => boolean;
+  /** The third-person body. Game.tsx adds this to the scene. */
+  avatar: THREE.Group;
+  /** Flips between first and third person; returns the new state. */
+  toggleView: () => boolean;
+  isThirdPerson: () => boolean;
   dispose: () => void;
 };
 
@@ -105,6 +121,58 @@ function buildSword(): THREE.Group {
   return g;
 }
 
+/**
+ * The player avatar, for third-person.
+ *
+ * Original design, not the character from the game this resembles — that
+ * one's skin and proportions are Mojang's. This is a generic blocky figure in
+ * a green tunic: same voxel idiom, nobody else's character.
+ */
+function buildAvatar(): { group: THREE.Group; legs: [THREE.Mesh, THREE.Mesh]; arms: [THREE.Mesh, THREE.Mesh] } {
+  const group = new THREE.Group();
+  const skin = new THREE.MeshLambertMaterial({ color: 0xc98f66 });
+  const tunic = new THREE.MeshLambertMaterial({ color: 0x3f7a55 });
+  const trouser = new THREE.MeshLambertMaterial({ color: 0x3b4a6b });
+  const hair = new THREE.MeshLambertMaterial({ color: 0x2f2418 });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x241c14 });
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skin);
+  head.position.y = 1.55;
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.16, 0.52), hair);
+  cap.position.y = 1.74;
+  for (const ex of [-0.12, 0.12]) {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.02), dark);
+    eye.position.set(ex, 1.58, 0.255);
+    group.add(eye);
+  }
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.72, 0.26), tunic);
+  torso.position.y = 0.94;
+  group.add(head, cap, torso);
+
+  const legGeo = new THREE.BoxGeometry(0.22, 0.58, 0.22);
+  const mkLeg = (x: number) => {
+    const leg = new THREE.Mesh(legGeo.clone(), trouser);
+    leg.geometry.translate(0, -0.29, 0);
+    leg.position.set(x, 0.58, 0);
+    group.add(leg);
+    return leg;
+  };
+  const legs: [THREE.Mesh, THREE.Mesh] = [mkLeg(-0.13), mkLeg(0.13)];
+
+  const armGeo = new THREE.BoxGeometry(0.2, 0.62, 0.2);
+  const mkArm = (x: number) => {
+    const arm = new THREE.Mesh(armGeo.clone(), tunic);
+    arm.geometry.translate(0, -0.31, 0);
+    arm.position.set(x, 1.28, 0);
+    group.add(arm);
+    return arm;
+  };
+  const arms: [THREE.Mesh, THREE.Mesh] = [mkArm(-0.35), mkArm(0.35)];
+
+  group.visible = false; // first-person by default
+  return { group, legs, arms };
+}
+
 export function createPlayerController(
   camera: THREE.PerspectiveCamera,
   domElement: HTMLElement,
@@ -117,6 +185,18 @@ export function createPlayerController(
 
   const swordGroup = buildSword();
   camera.add(swordGroup);
+
+  const avatar = buildAvatar();
+  /*
+   * Third-person is a camera offset, not a second camera. PointerLockControls
+   * owns the camera's rotation either way; all that changes is where the
+   * camera sits along that rotation — at the eyes, or pulled back behind
+   * them. That keeps aiming, the block raycast and mob hits identical in both
+   * views, because they all work from the same look direction.
+   */
+  let thirdPerson = false;
+  const camBack = new THREE.Vector3();
+  const eyePos = new THREE.Vector3();
 
   const keys = new Set<string>();
   const onKeyDown = (e: KeyboardEvent) => keys.add(e.code);
@@ -131,6 +211,7 @@ export function createPlayerController(
   const vel = new THREE.Vector3();
   let grounded = false;
   let swingT = 0;
+  let walkPhase = 0;
 
   const forward = new THREE.Vector3();
   const right = new THREE.Vector3();
@@ -290,7 +371,41 @@ export function createPlayerController(
     feet.z = THREE.MathUtils.clamp(feet.z, HALF + 0.01, bounds - HALF - 0.01);
     if (feet.y < -8) { feet.set(spawn.x, spawn.y, spawn.z); vel.set(0, 0, 0); }
 
-    camera.position.set(feet.x, feet.y + EYE, feet.z);
+    eyePos.set(feet.x, feet.y + EYE, feet.z);
+
+    if (thirdPerson) {
+      // Pull back along the full look vector (pitch included), but stop short
+      // of any solid block so the camera never ends up inside terrain.
+      camera.getWorldDirection(camBack);
+      let dist = 4.2;
+      for (let t = 0.4; t <= dist; t += 0.25) {
+        const px = eyePos.x - camBack.x * t;
+        const py = eyePos.y - camBack.y * t;
+        const pz = eyePos.z - camBack.z * t;
+        if (isSolid(Math.floor(px), Math.floor(py), Math.floor(pz))) { dist = Math.max(0.9, t - 0.35); break; }
+      }
+      camera.position.set(
+        eyePos.x - camBack.x * dist,
+        eyePos.y - camBack.y * dist + 0.25,
+        eyePos.z - camBack.z * dist,
+      );
+      avatar.group.position.set(feet.x, feet.y, feet.z);
+      // Face the way the camera looks, so the body turns with the view.
+      avatar.group.rotation.y = Math.atan2(forward.x, forward.z) + Math.PI;
+
+      const moving = wish.lengthSq() > 0.01;
+      walkPhase += dt * (moving ? 9 : 0);
+      const swingAmt = moving ? Math.sin(walkPhase) * 0.7 : 0;
+      avatar.legs[0].rotation.x = swingAmt;
+      avatar.legs[1].rotation.x = -swingAmt;
+      avatar.arms[0].rotation.x = -swingAmt;
+      avatar.arms[1].rotation.x = swingT > 0 ? -1.4 + swingT : swingAmt;
+      if (!moving) { avatar.legs[0].rotation.x = 0; avatar.legs[1].rotation.x = 0; }
+    } else {
+      camera.position.copy(eyePos);
+    }
+    avatar.group.visible = thirdPerson;
+    swordGroup.visible = !thirdPerson;
 
     if (swingT > 0) {
       swingT = Math.max(0, swingT - dt * 5);
@@ -328,10 +443,15 @@ export function createPlayerController(
     controls,
     update,
     position: camera.position,
+    feet,
     teleport,
     swordGroup,
     swing,
     isSwimming: submerged,
+    isMoving: () => wish.lengthSq() > 0.01 && grounded,
+    avatar: avatar.group,
+    toggleView: () => { thirdPerson = !thirdPerson; return thirdPerson; },
+    isThirdPerson: () => thirdPerson,
     dispose,
   };
 }
