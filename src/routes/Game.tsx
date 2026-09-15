@@ -345,12 +345,14 @@ export default function Game() {
         mob.group.visible = false;
         mobs.push(mob);
         scene.add(mob.group);
+        scene.add(mob.hpBar);
       });
       const addMob = (kind: MobKind, x: number, z: number, hidden = false) => {
         const mob = spawnMob(kind, x, z, world.heightAt(x, z) + 1);
         mob.group.visible = !hidden;
         mobs.push(mob);
         scene.add(mob.group);
+        scene.add(mob.hpBar);
         return mob;
       };
       /*
@@ -379,6 +381,12 @@ export default function Game() {
       // The one resident of the house — wanders the great room floor
       // (`guideHome`, dead centre) and is who the chat panel talks to.
       guideRef.current = addMob('villager', world.guideHome.x, world.guideHome.z);
+      // Regular villagers walk home and stop once they get there after dark
+      // — sensible when home is a cottage across the map. The guide's home
+      // is wherever it already always is, so without this flag that same
+      // "stop once home" behaviour made it freeze solid every night, with
+      // no way to tell that apart from actually being stuck.
+      guideRef.current.indoor = true;
 
       controller.avatar.traverse((o) => { o.castShadow = true; });
       scene.add(controller.avatar);
@@ -424,7 +432,8 @@ export default function Game() {
           const toMob = mob.pos.clone().sub(camera.position).normalize();
           if (forward2.dot(toMob) > 0.6) {
             const kd = new THREE.Vector2(mob.pos.x - camera.position.x, mob.pos.z - camera.position.z).normalize();
-            hitMob(mob, 3, kd);
+            hitMob(mob, 3, kd, world.isSolidAt);
+            audioRef.current?.mobHit();
             return true;
           }
         }
@@ -657,6 +666,8 @@ export default function Game() {
             if (mob.dead && mob.deathTimer <= 0) {
               scene.remove(mob.group);
               mob.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
+              scene.remove(mob.hpBar);
+              mob.hpBar.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
               return false;
             }
             return true;
@@ -777,7 +788,10 @@ export default function Game() {
         // running in the background indefinitely, since nothing ever closed
         // it. This is what actually stops the sound when the game closes.
         audio.dispose();
-        for (const mob of mobsRef.current) mob.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
+        for (const mob of mobsRef.current) {
+          mob.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
+          mob.hpBar.traverse((o) => { (o as THREE.Mesh).geometry?.dispose?.(); });
+        }
         for (const arrow of arrowsRef.current) arrow.mesh.geometry.dispose();
         for (const drop of dropsRef.current) drop.mesh.geometry.dispose();
         renderer.dispose();

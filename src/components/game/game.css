@@ -522,13 +522,19 @@
   right: 24px;
   top: 50%;
   transform: translateY(-50%);
-  /*
-   * Was min(380px, 88vw) / 62vh — noticeably cramped once an answer ran
-   * more than a few lines (see the flex fix on the body below: before that
-   * fix the panel didn't even scroll, it just overflowed the viewport).
-   * Bigger box, same corner.
-   */
   width: min(460px, 92vw);
+  /*
+   * This was `max-height` only, with no `height` — and a flex container
+   * with no definite height sizes itself to its content (hug-to-fit), not
+   * to `max-height`. That left the body's `flex: 1 1 0` with no actual
+   * extra space to grow into: flex-basis 0 plus nothing to distribute
+   * collapses the message list to barely a line, no matter how long the
+   * answer actually was, which is exactly the "box so small I can't read
+   * anything" bug. A real `height` gives the flex column a fixed space to
+   * fill, so the body reliably gets the room it's supposed to and scrolls
+   * inside it instead of collapsing.
+   */
+  height: min(64vh, 560px);
   max-height: 78vh;
   display: flex;
   flex-direction: column;

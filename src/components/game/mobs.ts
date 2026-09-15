@@ -30,6 +30,21 @@ export type Mob = {
   /** Vertical velocity, for gravity and stepping down off ledges. */
   velY: number;
   grounded: boolean;
+  /**
+   * True for a mob that's already "safe" wherever it stands (the house
+   * guide). Regular villagers walk home and stop once they get there after
+   * dark — sensible for someone whose home is a cottage they need to reach.
+   * For the guide, home is wherever it already always is, so that same
+   * behaviour just reads as "stopped wandering, standing frozen" the moment
+   * night falls, with no way to tell it apart from actually being stuck.
+   */
+  indoor?: boolean;
+  /** Counts down after a hit; drives the red damage flash. 0 = no flash. */
+  flashT: number;
+  /** Every material this mob's body uses, with its original colour — what the flash lerps away from and back to. */
+  flashMats: { mat: THREE.MeshLambertMaterial; base: THREE.Color }[];
+  /** Floating health bar, positioned and billboarded in `updateMob` — not a child of `group`, so it never inherits the body's rotation. */
+  hpBar: THREE.Group;
 };
 
 function buildRig(skinColor: number, accent: number): Mob['parts'] & { group: THREE.Group } {
@@ -330,6 +345,18 @@ export function spawnMob(kind: MobKind, x: number, z: number, y: number): Mob {
     : buildGuardianRig();
   rig.group.position.set(x, y, z);
   const hp = HP_BY_KIND[kind];
+
+  // Every coloured body material this mob owns — each rig builder makes its
+  // own fresh `MeshLambertMaterial` instances per call (never module-level
+  // shared ones), so tinting these on a hit is safe and never bleeds onto
+  // any other mob of the same kind standing nearby.
+  const flashMats: Mob['flashMats'] = [];
+  rig.group.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    const mat = mesh.material as THREE.Material | undefined;
+    if (mat instanceof THREE.MeshLambertMaterial) flashMats.push({ mat, base: mat.color.clone() });
+  });
+
   return {
     kind,
     group: rig.group,
@@ -347,7 +374,44 @@ export function spawnMob(kind: MobKind, x: number, z: number, y: number): Mob {
     home: new THREE.Vector2(x, z),
     velY: 0,
     grounded: false,
+    flashT: 0,
+    flashMats,
+    hpBar: buildHpBar(),
   };
+}
+
+/**
+ * A floating health bar: a dark backing plate and a green fill scaled to the
+ * current HP fraction. Not parented to the mob's own body group — it's kept
+ * as a separate top-level object, positioned above the mob's head and
+ * billboarded to face the player every frame in `updateMob`, so it never
+ * inherits the body's walk-cycle rotation or tips over sideways as the mob
+ * turns.
+ */
+function buildHpBar(): THREE.Group {
+  const g = new THREE.Group();
+  const back = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.62, 0.09),
+    new THREE.MeshBasicMaterial({ color: 0x1a1410, depthTest: false }),
+  );
+  back.renderOrder = 10;
+  g.add(back);
+  const fill = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.56, 0.05),
+    new THREE.MeshBasicMaterial({ color: 0x4caf3a, depthTest: false }),
+  );
+  // Shift the geometry so its left edge sits at local x=0 instead of the
+  // plane's default centre — that's what lets `updateMob` shrink it toward
+  // the left edge with a simple `scale.x = hpFraction` instead of it
+  // shrinking symmetrically from the middle, which reads as the bar
+  // floating away from its own backing plate rather than draining.
+  fill.geometry.translate(0.28, 0, 0);
+  fill.position.set(-0.28, 0, 0.001);
+  fill.renderOrder = 11;
+  fill.name = 'fill';
+  g.add(fill);
+  g.visible = false; // hidden until the first hit — a full-health bar over every idle sheep is just noise
+  return g;
 }
 
 /** Half-width and height of each mob's collision box, in blocks. */
@@ -398,6 +462,30 @@ export function updateMob(
 
   mob.hitCooldown = Math.max(0, mob.hitCooldown - dt);
   mob.attackCooldown = Math.max(0, mob.attackCooldown - dt);
+
+  /*
+   * The red damage flash: lerp every body material toward red as `flashT`
+   * counts down from its post-hit value, restoring the mob's real colours
+   * once it reaches zero. Applies to every mob kind the same way — zombie,
+   * sheep, or guardian — since `flashMats` was built generically off
+   * whatever `MeshLambertMaterial`s the rig actually has.
+   */
+  mob.flashT = Math.max(0, mob.flashT - dt);
+  const flashAmt = mob.flashT / 0.25;
+  for (const { mat, base } of mob.flashMats) {
+    if (flashAmt > 0) mat.color.copy(base).lerp(new THREE.Color(0xff2a2a), flashAmt * 0.75);
+    else mat.color.copy(base);
+  }
+
+  // The floating health bar: parked above the head, billboarded to face the
+  // player (yaw only, so it never tilts), and its fill scaled to hp/maxHp.
+  if (mob.hpBar.visible) {
+    const barY = mob.pos.y + BODY[mob.kind].height + 0.35;
+    mob.hpBar.position.set(mob.pos.x, barY, mob.pos.z);
+    mob.hpBar.lookAt(playerPos.x, barY, playerPos.z);
+    const fill = mob.hpBar.getObjectByName('fill');
+    if (fill) fill.scale.x = Math.max(0, mob.hp / mob.maxHp);
+  }
 
   /*
    * The guardian is the one mob that fights *for* the village. It ignores the
@@ -476,10 +564,24 @@ export function updateMob(
       if (aimAtPlayer) onAttack(mob.kind === 'zombie' ? 2 : 1);
       mob.attackCooldown = 1.1;
     }
-  } else if (mob.kind === 'villager' && isNight) {
-    // Head home after dark instead of standing out in the open.
+  } else if (mob.kind === 'villager' && isNight && !mob.indoor) {
+    /*
+     * Head home after dark instead of standing out in the open — but once
+     * actually home, this used to leave `move` at its default zero vector
+     * with nothing else in this branch to replace it, so the villager just
+     * stopped dead for the rest of the night: no wander, no idle animation,
+     * arms and legs locked wherever they last were. That's indistinguishable
+     * from a stuck/broken mob. A tiny idle shuffle within a block and a half
+     * of home reads as "waiting", not "frozen".
+     */
     const to = new THREE.Vector2(mob.home.x - mob.pos.x, mob.home.y - mob.pos.z);
     if (to.length() > 1.2) move = to.normalize().multiplyScalar(0.8);
+    else if (Math.random() < 0.01) {
+      mob.wanderTarget.set(mob.home.x + (Math.random() - 0.5) * 1.4, mob.home.y + (Math.random() - 0.5) * 1.4);
+    } else {
+      const toIdle = new THREE.Vector2(mob.wanderTarget.x - mob.pos.x, mob.wanderTarget.y - mob.pos.z);
+      if (toIdle.length() > 0.15) move = toIdle.normalize().multiplyScalar(0.15);
+    }
   } else {
     const toTarget = new THREE.Vector2(mob.wanderTarget.x - mob.pos.x, mob.wanderTarget.y - mob.pos.z);
     if (toTarget.length() < 0.6 || Math.random() < 0.002) {
@@ -641,9 +743,14 @@ export function hitMob(
     mob.pos.z = nz;
   }
   mob.hitCooldown = 0.25;
+  // The red damage flash and the health bar both key off this — see the
+  // decay/tint and the bar's visibility toggle in updateMob.
+  mob.flashT = 0.25;
+  mob.hpBar.visible = true;
   if (mob.hp <= 0) {
     mob.dead = true;
     mob.deathTimer = 0.6;
+    mob.hpBar.visible = false;
   }
 }
 

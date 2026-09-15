@@ -6,7 +6,7 @@ import { Water } from '@/components/game/water';
 import { Chest, MapBoard } from '@/components/game/props';
 import {
   buildCanopyBed, buildBookshelf, buildRug, buildHangingLantern,
-  buildFramedArt, buildPottedPlant, buildBarrel, buildFireplace,
+  buildFramedArt, buildPottedPlant, buildBarrel, buildFireplace, buildDoor,
 } from '@/components/game/decor';
 import type { Project, Profile } from '@/lib/content';
 
@@ -219,17 +219,17 @@ function buildHouse(overlay: Overlay, hm: Heightmap): HouseInfo {
    */
   const windows: Record<'N' | 'S' | 'E' | 'W', WindowSpec[]> = {
     S: [
-      { start: -(half - 1), glassW: 2, y0: base + 2, y1: base + 3 },
-      { start: half - 4, glassW: 2, y0: base + 2, y1: base + 3 },
+      { start: -(half - 1), glassW: 3, y0: base + 2, y1: base + 4 },
+      { start: half - 4, glassW: 3, y0: base + 2, y1: base + 4 },
     ],
     // North keeps just one window (east end) — the west end is the bed nook.
-    N: [{ start: half - 4, glassW: 2, y0: base + 2, y1: base + 3 }],
+    N: [{ start: half - 4, glassW: 3, y0: base + 2, y1: base + 4 }],
     // One window near the door end — the rest of the wall stays clear for plaques.
-    W: [{ start: half - 4, glassW: 2, y0: base + 2, y1: base + 3 }],
+    W: [{ start: half - 4, glassW: 3, y0: base + 2, y1: base + 4 }],
     // One window near the back end, mirrored to the opposite end from the
     // west wall's — asymmetric on purpose, and it leaves the *other* end of
     // this wall clear for plaques too.
-    E: [{ start: -(half - 1), glassW: 2, y0: base + 2, y1: base + 3 }],
+    E: [{ start: -(half - 1), glassW: 3, y0: base + 2, y1: base + 4 }],
   };
 
   /** Resolves which wall (if any) a wall cell belongs to, and its along-wall offset from centre. */
@@ -398,6 +398,25 @@ function blockFor(hm: Heightmap, overlay: Overlay, removed: Set<string>, x: numb
 function isSolid(hm: Heightmap, overlay: Overlay, removed: Set<string>, x: number, y: number, z: number): boolean {
   if (y < 0) return true;
   const b = blockFor(hm, overlay, removed, x, y, z);
+  return b !== Block.AIR && !TRANSPARENT.has(b);
+}
+
+/**
+ * Blocks that are solid for collision (`isSolid`, above) but invisible in
+ * the world mesh — currently just the bed. Without this distinction, a
+ * neighbouring block's face-culling check (`isSolid` on the bed cell) sees
+ * "solid" and skips its own face, but the bed cell renders nothing to fill
+ * that gap — the floor directly under the bed loses its top face and the
+ * player can see straight through it. `isSolidForMesh` is what every
+ * neighbour-visibility check in the mesher uses instead of `isSolid`, so
+ * mesh-invisible cells are treated as *not* solid for that one purpose
+ * while collision (`isSolid`, `isSolidAt`, `isMobSolidAt`) is untouched.
+ */
+const MESH_INVISIBLE = new Set<Block>([Block.BEDRED, Block.BEDWHITE]);
+function isSolidForMesh(hm: Heightmap, overlay: Overlay, removed: Set<string>, x: number, y: number, z: number): boolean {
+  if (y < 0) return true;
+  const b = blockFor(hm, overlay, removed, x, y, z);
+  if (MESH_INVISIBLE.has(b)) return false;
   return b !== Block.AIR && !TRANSPARENT.has(b);
 }
 
@@ -687,14 +706,27 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
         for (let y = 0; y <= colTop; y++) {
           const b = blockFor(hm, overlay, removed, x, y, z);
           if (b === Block.AIR) continue;
+          /*
+           * The bed's two voxel cells exist purely for collision and for
+           * culling the world mesh around them — the decorative
+           * `buildCanopyBed` group is what's actually meant to be seen. But
+           * with no special case here, the mesher painted them anyway: two
+           * full-brightness, fully-saturated red/white cubes sitting right
+           * through the canopy mesh, which is exactly why the bed read as
+           * "a coloured block" no matter how much detail the mesh added on
+           * top of it. Skipping face generation makes them invisible while
+           * leaving `isSolid()` (a separate check) untouched, so they're
+           * still there for collision and for sleeping.
+           */
+          if (b === Block.BEDRED || b === Block.BEDWHITE) continue;
           const builder = TRANSPARENT.has(b) ? trans : opaque;
           const [top, bottom, side] = tilesFor(b);
-          if (!isSolid(hm, overlay, removed, x, y + 1, z)) builder.addFace(x, y, z, 'top', top);
-          if (!isSolid(hm, overlay, removed, x, y - 1, z)) builder.addFace(x, y, z, 'bottom', bottom);
-          if (!isSolid(hm, overlay, removed, x, y, z - 1)) builder.addFace(x, y, z, 'north', side);
-          if (!isSolid(hm, overlay, removed, x, y, z + 1)) builder.addFace(x, y, z, 'south', side);
-          if (!isSolid(hm, overlay, removed, x + 1, y, z)) builder.addFace(x, y, z, 'east', side);
-          if (!isSolid(hm, overlay, removed, x - 1, y, z)) builder.addFace(x, y, z, 'west', side);
+          if (!isSolidForMesh(hm, overlay, removed, x, y + 1, z)) builder.addFace(x, y, z, 'top', top);
+          if (!isSolidForMesh(hm, overlay, removed, x, y - 1, z)) builder.addFace(x, y, z, 'bottom', bottom);
+          if (!isSolidForMesh(hm, overlay, removed, x, y, z - 1)) builder.addFace(x, y, z, 'north', side);
+          if (!isSolidForMesh(hm, overlay, removed, x, y, z + 1)) builder.addFace(x, y, z, 'south', side);
+          if (!isSolidForMesh(hm, overlay, removed, x + 1, y, z)) builder.addFace(x, y, z, 'east', side);
+          if (!isSolidForMesh(hm, overlay, removed, x - 1, y, z)) builder.addFace(x, y, z, 'west', side);
         }
       }
     }
@@ -850,9 +882,14 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
 
   // Usable z-range on each wall: inside the corners, clear of that wall's
   // own window, and (on the west wall) clear of the bed nook too.
-  const westZ0 = cz - half + 3; // clear of the bed-nook corner
+  // Widened after the windows grew from 2 columns to 3 (brief: "increase
+  // windows and add glass to them") — each zone now keeps a full block of
+  // clearance from the wider window frame and the bed-nook corner, not just
+  // enough to avoid literally overlapping it, so a plaque never ends up
+  // hanging close enough to a window or the bed to read as misplaced.
+  const westZ0 = cz - half + 4; // clear of the bed-nook corner
   const westZ1 = cz + half - 6; // clear of the west wall's door-end window
-  const eastZ0 = cz - half + 4; // clear of the east wall's back-end window
+  const eastZ0 = cz - half + 5; // clear of the east wall's back-end window
   const eastZ1 = cz + half - 3;
 
   const westX = cx - half + 0.52; // just proud of the interior west wall face
@@ -997,6 +1034,14 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
    */
   const gateZ = cz + half + 1;
   group.add(buildGateMesh(house.doorX + 0.5, heightAt(house.doorX, gateZ) + 1, gateZ + 0.5));
+
+  /*
+   * The door itself — hinged open against the inside of the left jamb (see
+   * `buildDoor`'s own comment for why it doesn't swing shut). Mounted right
+   * on the wall plane, at the actual opening, so it reads as part of the
+   * doorway rather than a separate object near it.
+   */
+  group.add(buildDoor(house.doorX - 0.5, floorY, cz + half, -Math.PI * 0.47));
 
   /*
    * Torch placement: either side of the front door (outside, so the

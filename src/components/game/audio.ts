@@ -158,6 +158,8 @@ export class GameAudio {
   hit() { this.burst(520, 0.9, 0.002, 0.13, 0.22); }
   hurt() { this.tone(300, 0.22, 0.2, 'square', 140); }
   pickup() { this.tone(880, 0.09, 0.10, 'triangle', 1320); }
+  /** A landed hit on a mob — distinct from the player's own `hurt()`, so a swing that connects is audible even from a mob that never cries out. */
+  mobHit() { this.burst(200, 1.4, 0.002, 0.10, 0.24, 'lowpass'); }
   open() { this.tone(420, 0.16, 0.10, 'triangle', 620); }
 
   /**

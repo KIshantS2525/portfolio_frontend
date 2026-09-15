@@ -23,6 +23,49 @@ const MID_WOOD = 0x6b4a30;
 const LIGHT_WOOD = 0x9a6b35;
 
 /**
+ * A door, permanently hinged open against the inside of the door frame —
+ * this engine has no state machine for "closed unless a player or mob is
+ * nearby" the way blocks do, and a door that could swing shut on the player
+ * (or that a zombie could open) would undo the invisible mob-barrier this
+ * doorway already relies on. Propped open against the wall is a real
+ * design a lot of actual cabins use, not a cop-out: it reads as "there is a
+ * door here" without contradicting how the doorway actually works.
+ */
+export function buildDoor(x: number, y: number, z: number, facing = 0): THREE.Group {
+  const g = new THREE.Group(); // origin is the hinge, at floor height
+  const wood = new THREE.MeshLambertMaterial({ color: DARK_WOOD });
+  const trim = new THREE.MeshLambertMaterial({ color: 0x2a1c10 });
+  const iron = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.55, 0.07), wood);
+  panel.geometry.translate(0.46, 1.32, 0);
+  g.add(panel);
+  // Two raised panel rectangles, the same framed-door look as the reference
+  // doors — just boxes, but it's what turns a plain slab into "a door".
+  for (const py of [0.75, 1.9]) {
+    const stripFront = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.85, 0.015), trim);
+    stripFront.geometry.translate(0.46, py, 0.045);
+    const stripBack = stripFront.clone();
+    stripBack.geometry = stripFront.geometry.clone();
+    stripBack.geometry.translate(0, 0, -0.09);
+    g.add(stripFront, stripBack);
+  }
+  const handle = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), iron);
+  handle.position.set(0.86, 1.15, 0.06);
+  g.add(handle);
+  const hinge0 = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.09), iron);
+  hinge0.position.set(0.02, 0.5, 0);
+  const hinge1 = hinge0.clone();
+  hinge1.position.y = 2.1;
+  g.add(hinge0, hinge1);
+
+  g.position.set(x, y, z);
+  g.rotation.y = facing;
+  g.traverse((o) => { o.castShadow = true; });
+  return g;
+}
+
+/**
  * A four-poster canopy bed — replaces the old two-cube-and-a-headboard bed.
  * Same calling convention as before: (x, y, z) is the floor anchor, and the
  * headboard sits toward -Z (so it reads correctly against the north wall of
