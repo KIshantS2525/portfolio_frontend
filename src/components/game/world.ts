@@ -4,6 +4,10 @@ import { Block, TRANSPARENT, tilesFor, uvRect, buildAtlas, DROP_FOR } from '@/co
 import { paintSign, paintSignTitle } from '@/components/game/noticeBoard';
 import { Water } from '@/components/game/water';
 import { Chest, MapBoard } from '@/components/game/props';
+import {
+  buildCanopyBed, buildBookshelf, buildRug, buildHangingLantern,
+  buildFramedArt, buildPottedPlant, buildBarrel, buildFireplace,
+} from '@/components/game/decor';
 import type { Project, Profile } from '@/lib/content';
 
 /**
@@ -175,6 +179,8 @@ export type HouseInfo = {
   half: number;
   /** How many rows tall the doorway opening is, from `baseY + 1`. */
   doorH: number;
+  /** Wall height in rows, from `baseY + 1` to the belt course. */
+  wallH: number;
 };
 
 /** A framed picture window: a vertical log post either side, log sill and lintel, glass in between. */
@@ -344,41 +350,8 @@ function buildHouse(overlay: Overlay, hm: Heightmap): HouseInfo {
     cz,
     half,
     doorH,
+    wallH,
   };
-}
-
-/**
- * The bed, as a mesh rather than two cubes.
- *
- * Two full blocks read as a red box and a white box sitting on the floor,
- * which is what they are. A bed is a low mattress with a raised pillow at one
- * end and legs at the corners — all of that is boxes too, just not
- * block-sized ones, so it costs a handful of geometry and stops the one piece
- * of furniture in the house looking like leftover building material.
- */
-function buildBedMesh(x: number, y: number, z: number): THREE.Group {
-  const g = new THREE.Group();
-  const cloth = new THREE.MeshLambertMaterial({ color: 0xb2352f });
-  const pillowMat = new THREE.MeshLambertMaterial({ color: 0xece5d6 });
-  const frame = new THREE.MeshLambertMaterial({ color: 0x6b4a30 });
-
-  const mattress = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.28, 1.9), cloth);
-  mattress.position.set(0, 0.42, 0);
-  const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.16, 0.5), pillowMat);
-  pillow.position.set(0, 0.62, -0.62);
-  const headboard = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.45, 0.12), frame);
-  headboard.position.set(0, 0.5, -0.98);
-  const base = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.1, 1.9), frame);
-  base.position.set(0, 0.26, 0);
-  g.add(mattress, pillow, headboard, base);
-
-  for (const [lx, lz] of [[-0.42, -0.85], [0.42, -0.85], [-0.42, 0.85], [0.42, 0.85]]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.22, 0.14), frame);
-    leg.position.set(lx, 0.11, lz);
-    g.add(leg);
-  }
-  g.position.set(x, y, z);
-  return g;
 }
 
 /** Drifting cloud slabs, well above the build ceiling. */
@@ -869,7 +842,7 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
    * *visible, non-overlapping* plaque here rather than crowding an existing
    * one out.
    */
-  const { cx, cz, half, baseY, doorH } = house;
+  const { cx, cz, half, baseY, doorH, wallH } = house;
   const floorY = baseY + 1;
   const boards: BuiltWorld['boards'] = [];
   const galleryGroup = new THREE.Group();
@@ -933,7 +906,7 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   group.add(galleryGroup);
 
   // Furniture and sky, added as meshes rather than blocks.
-  group.add(buildBedMesh(house.bedPos.x, house.baseY + 1, house.bedPos.z));
+  group.add(buildCanopyBed(house.bedPos.x, house.baseY + 1, house.bedPos.z));
   const clouds = buildClouds();
   group.add(clouds);
 
@@ -959,6 +932,62 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   group.add(mapBoard.group);
 
   /*
+   * Interior dressing: the brief was "warm, lived-in forest cabin", which a
+   * bed, a chest and a map board don't add up to on their own — a room with
+   * three interaction points and otherwise bare walls still reads as empty.
+   * Each piece here gives a wall or a corner its own reason to exist: the
+   * hearth is the great room's focal point (directly opposite the door, the
+   * first thing you see walking in), the bookshelf and barrels are the
+   * "someone actually lives here" clutter, the rugs anchor the bed and the
+   * gallery floor, and the lanterns are what keeps the room from reading as
+   * a dark box at night on top of the torch ring.
+   *
+   * Placement is hand-fit to this house's specific geometry (`half = 7`,
+   * the window layout above) rather than derived generically — every one of
+   * these needed to land in a gap the walls, windows, gallery and doorway
+   * had already claimed, which isn't worth generalising for a single room.
+   */
+
+  // The hearth: centred on the back (north) wall, in the one stretch of it
+  // that's neither the bed nook nor that wall's window.
+  group.add(buildFireplace(cx + 0.5, floorY, cz - half + 0.52));
+
+  // A bookshelf between the hearth and the bed — the "study corner" you'd
+  // actually find next to someone's bed, not a showroom shelf.
+  group.add(buildBookshelf(cx - 2 + 0.5, floorY, cz - half + 0.5));
+
+  // A framed piece over the head of the bed, and one over the door — the
+  // two spots every reference image of a cabin like this puts one.
+  group.add(buildFramedArt(cx - half + 0.52, floorY + 1.55, cz - half + 1.5, Math.PI / 2, 3));
+  group.add(buildFramedArt(cx - 2 + 0.5, floorY + 2.3, cz + half - 0.48, Math.PI, 7));
+
+  // Firewood and stores by the hearth and the door.
+  group.add(buildBarrel(cx + 1.6, floorY, cz - half + 1.3));
+  group.add(buildBarrel(chestX - 1.2, floorY, chestZ + 0.6));
+
+  // A plant beside each of the doorway fixtures.
+  group.add(buildPottedPlant(chestX - 0.9, floorY, chestZ + 0.4));
+  group.add(buildPottedPlant(mapX + 0.9, floorY, mapZ + 0.4));
+
+  // Rugs: one under the bed, one anchoring the middle of the room.
+  group.add(buildRug(house.bedPos.x, floorY, house.bedPos.z + 0.3, 2.6, 3.1, 0, '#4a5b66', '#dfe4e6'));
+  group.add(buildRug(cx + 0.5, floorY, cz + 0.5, 3.4, 3.4, Math.PI / 4, '#6b4530', '#e8d2a0'));
+
+  /*
+   * Hanging lanterns — decoration only; each one's actual light comes from
+   * the torch pool below via a matching `torchSpots` entry, the same way
+   * the fireplace's does. Hung from a nominal ceiling line just under the
+   * belt course, well clear of head height under `wallH`-tall walls.
+   */
+  const ceilingY = house.baseY + wallH + 0.6;
+  const lanternSpots: { x: number; z: number }[] = [
+    { x: cx + 0.5, z: cz + half - 3 }, // just inside the door
+    { x: cx + 0.5, z: cz + 0.5 }, // centre of the room, over the guide
+    { x: cx - half + 3, z: cz - 2 }, // over the bed/bookshelf corner
+  ];
+  for (const s of lanternSpots) group.add(buildHangingLantern(s.x, ceilingY, s.z));
+
+  /*
    * The gate: a low wooden gate across the porch, at the same column as the
    * actual (invisible) mob barrier below — see `isMobSolidAt`. Visually it
    * reads as "this entrance is guarded"; the collision that actually keeps
@@ -971,13 +1000,12 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
 
   /*
    * Torch placement: either side of the front door (outside, so the
-   * threshold is lit), one at each cottage doorstep, and a ring around the
-   * inside of the great room — including one at each gallery wall's midpoint
-   * — now that it's genuinely large enough to go properly dark in its own
-   * corners at night. This was the single biggest thing making the house
-   * feel gloomy after dark: four corner torches over a 15x15 floor leaves
-   * the middle of each wall in shadow, which is exactly where the plaques
-   * people are meant to be reading are.
+   * threshold is lit), one at each cottage doorstep, a ring around the
+   * inside of the great room — including one at each gallery wall's
+   * midpoint — and now the hearth and every hanging lantern too. This was
+   * the single biggest thing making the house feel gloomy after dark: four
+   * corner torches over a 15x15 floor leaves the middle of each wall (and
+   * every new piece of furniture) sitting in shadow.
    */
   const torchSpots: { x: number; y: number; z: number }[] = [];
   const addTorch = (x: number, z: number) => {
@@ -993,11 +1021,15 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz - half + 1.5 });
   torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz + half - 1.5 });
   torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz + half - 1.5 });
-  // Gallery-wall midpoints and the room's centre, so the plaques and the
-  // guide are both lit rather than just the corners and the doorway.
+  // Gallery-wall midpoints, so the plaques are lit rather than just the
+  // corners and the doorway.
   torchSpots.push({ x: cx - half + 1.5, y: floorY, z: cz + 0.5 });
   torchSpots.push({ x: cx + half - 1.5, y: floorY, z: cz + 0.5 });
-  torchSpots.push({ x: cx + 0.5, y: floorY, z: cz - half + 1.5 });
+  // The hearth's own glow — matched to the firebox glow mesh's actual
+  // position in buildFireplace (group origin + local y=0.46, z=0.34).
+  torchSpots.push({ x: cx + 0.5, y: floorY + 0.46, z: cz - half + 0.52 + 0.34 });
+  // Each hanging lantern's light, at the fixture's actual glowing core.
+  for (const s of lanternSpots) torchSpots.push({ x: s.x, y: ceilingY - 0.52, z: s.z });
 
   /** Where the resident guide stands and wanders — dead centre of the hall. */
   const guideHome = new THREE.Vector3(cx + 0.5, floorY, cz + 0.5);
@@ -1029,7 +1061,7 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
     /*
      * The bed is two things at once: these overlay voxels (which drive the
      * world mesh's face-culling around it) and a separate decorative
-     * `buildBedMesh` group added straight to `group`. Mining the voxels used
+     * `buildCanopyBed` group added straight to `group`. Mining the voxels used
      * to leave the world mesh with a hole where the bed was while the
      * decorative mesh kept floating over it — and `bedPos` still pointed at
      * the now-empty spot, so the sleep prompt kept appearing over nothing.

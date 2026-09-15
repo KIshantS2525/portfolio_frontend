@@ -17,18 +17,13 @@ import * as THREE from 'three';
  */
 
 /*
- * The light budget was 6, tuned back when the house interior only had a
- * handful of torches competing with everything outside it. The house is a
- * real 15x15 room with its own ring of torches now, and being *inside* it
- * at night — which is where the player actually spends time reading the
- * gallery — was consistently darker than it should be: "nearest 6" doesn't
- * guarantee all of one room's torches win against a village doorstep torch
- * that happens to be a little closer. Bumped to 10, and each light is a
- * little brighter and reaches a little further, which is the other half of
- * "the house looks dark at night" — 6 lights at the old intensity/distance
- * simply didn't reach every corner of a room this size.
+ * Bumped again (10 → 14) once the house interior gained a hearth and three
+ * hanging lanterns on top of its existing torch ring — with those, "inside
+ * the house at night" alone is comfortably a dozen light sources, and the
+ * budget needs enough headroom that none of them get bumped out by a
+ * village torch that happens to be a touch closer.
  */
-const LIGHT_BUDGET = 10;
+const LIGHT_BUDGET = 14;
 
 export type Torch = { pos: THREE.Vector3; flame: THREE.Mesh; phase: number };
 
