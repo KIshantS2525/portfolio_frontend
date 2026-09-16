@@ -450,7 +450,7 @@ const AGGRO_R = 13;
 const SPEED = 1.6;
 const ATTACK_R = 1.15;
 /** The golem: slow and heavy always, per the design brief — even chasing a threat is well under a zombie's speed. */
-const GOLEM_DETECT_R = 15;
+const GOLEM_DETECT_R = 19;
 const GOLEM_ATTACK_R = 2.5;
 const GOLEM_PATROL_SPEED = 0.6;
 const GOLEM_CHASE_SPEED = 1.3;
@@ -527,8 +527,13 @@ export function updateMob(
       speed = GOLEM_CHASE_SPEED;
       if (to.length() > GOLEM_ATTACK_R) gmove = to.clone().normalize();
       else if (mob.attackCooldown <= 0) {
-        hitMob(target, 12, to.clone().normalize(), isSolid);
-        mob.attackCooldown = 1.4;
+        // Bumped from 12 (already a one-hit kill on any current hostile) to
+        // 18, and the cooldown down from 1.4s to 1.05s — "powerful too",
+        // and with the hostile population significantly larger now, a
+        // golem clearing threats faster is what actually keeps it feeling
+        // like population control rather than a slow trickle.
+        hitMob(target, 18, to.clone().normalize(), isSolid);
+        mob.attackCooldown = 1.05;
         // The "slam": both arms come up and crash down together, rather
         // than one arm flicking like a punch — this is meant to read as
         // heavy, not fast.
@@ -836,6 +841,18 @@ export function hitMob(
   isSolid?: (x: number, y: number, z: number) => boolean,
 ) {
   if (mob.dead) return;
+  /*
+   * "The police have unlimited life" — a guardian never loses HP or dies,
+   * regardless of what hits it (a hostile can't currently target one, but
+   * the player's own sword doesn't exclude it the way it excludes the
+   * guide). It's also too heavy to be knocked around by a hit — the flash
+   * still fires, so a hit still visibly registers, but the golem doesn't
+   * flinch or take a scratch.
+   */
+  if (mob.kind === 'guardian') {
+    mob.flashT = 0.25;
+    return;
+  }
   mob.hp -= dmg;
   const nx = mob.pos.x + knockDir.x * 0.6;
   const nz = mob.pos.z + knockDir.y * 0.6;

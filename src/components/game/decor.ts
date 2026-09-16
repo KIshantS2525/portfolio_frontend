@@ -30,11 +30,19 @@ const LIGHT_WOOD = 0x9a6b35;
  * doorway already relies on. Propped open against the wall is a real
  * design a lot of actual cabins use, not a cop-out: it reads as "there is a
  * door here" without contradicting how the doorway actually works.
+ *
+ * Painted a deliberately different tone from the walls (a muted red-brown,
+ * not the same dark plank brown everything else in the frame is built
+ * from) — the first version used the same dark wood tone as the wall it
+ * was mounted against, which is almost certainly why it read as "not
+ * there": a dark object flush against a dark wall of a very similar colour
+ * is easy to miss entirely even when it's rendering exactly where it
+ * should be.
  */
 export function buildDoor(x: number, y: number, z: number, facing = 0): THREE.Group {
   const g = new THREE.Group(); // origin is the hinge, at floor height
-  const wood = new THREE.MeshLambertMaterial({ color: DARK_WOOD });
-  const trim = new THREE.MeshLambertMaterial({ color: 0x2a1c10 });
+  const wood = new THREE.MeshLambertMaterial({ color: 0x8a4a35 });
+  const trim = new THREE.MeshLambertMaterial({ color: 0x3a2418 });
   const iron = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
 
   const panel = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.55, 0.07), wood);

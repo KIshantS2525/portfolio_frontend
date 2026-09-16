@@ -1098,12 +1098,17 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   group.add(buildGateMesh(house.doorX + 0.5, heightAt(house.doorX, gateZ) + 1, gateZ + 0.5));
 
   /*
-   * The door itself — hinged open against the inside of the left jamb (see
-   * `buildDoor`'s own comment for why it doesn't swing shut). Mounted right
-   * on the wall plane, at the actual opening, so it reads as part of the
-   * doorway rather than a separate object near it.
+   * The door itself. Hinged on the *interior* side of the frame this time —
+   * the porch side (its original spot) is already crowded with the gate,
+   * two log posts, and a torch, any of which could have been hiding it or
+   * sitting close enough to be mistaken for it. The clear stretch of great-
+   * room floor just inside the door has nothing else on it, so there's
+   * nothing left for it to disappear behind. A clean 90° swing (rather than
+   * the previous ~85°, which was fussy to get exactly right) lays it flat
+   * against the interior wall face, hugging it the way a real propped-open
+   * door would.
    */
-  group.add(buildDoor(house.doorX - 0.5, floorY, cz + half, -Math.PI * 0.47));
+  group.add(buildDoor(house.doorX - 0.5, floorY, cz + half - 0.5, Math.PI / 2));
 
   /*
    * Torch placement: either side of the front door (outside, so the

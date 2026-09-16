@@ -357,18 +357,31 @@ export default function Game() {
       scene.add(highlight);
 
       const mobs: Mob[] = [];
-      const spawnRing = Math.min(SIZE / 2 - 10, 26);
-      const kinds: MobKind[] = ['zombie', 'zombie', 'skeleton', 'zombie', 'skeleton', 'zombie'];
-      kinds.forEach((kind, i) => {
-        const a = (i / kinds.length) * Math.PI * 2 + 0.4;
-        const x = SIZE / 2 + Math.cos(a) * spawnRing;
-        const z = SIZE / 2 + Math.sin(a) * spawnRing;
-        const mob = spawnMob(kind, x, z, world.heightAt(x, z) + 1);
-        mob.group.visible = false;
-        mobs.push(mob);
-        scene.add(mob.group);
-        scene.add(mob.hpBar);
-      });
+      /*
+       * Population bumped from 6 (4 zombies, 2 skeletons) to 18 — with the
+       * golems now actively hunting hostiles down at night to "control the
+       * population" (per the brief), 6 wasn't enough of a population for
+       * that to be visible as an ongoing thing rather than "the two zombies
+       * near the village died once and that was it". Split across two
+       * rings at different radii, rather than one circle, so they don't all
+       * stand shoulder to shoulder at the same distance from the house.
+       */
+      const spawnRings: { radius: number; kinds: MobKind[] }[] = [
+        { radius: Math.min(SIZE / 2 - 10, 22), kinds: ['zombie', 'zombie', 'skeleton', 'zombie', 'skeleton', 'zombie', 'zombie', 'skeleton'] },
+        { radius: Math.min(SIZE / 2 - 6, 32), kinds: ['zombie', 'skeleton', 'zombie', 'zombie', 'skeleton', 'zombie', 'skeleton', 'zombie', 'zombie', 'skeleton'] },
+      ];
+      for (const { radius, kinds } of spawnRings) {
+        kinds.forEach((kind, i) => {
+          const a = (i / kinds.length) * Math.PI * 2 + 0.4;
+          const x = SIZE / 2 + Math.cos(a) * radius;
+          const z = SIZE / 2 + Math.sin(a) * radius;
+          const mob = spawnMob(kind, x, z, world.heightAt(x, z) + 1);
+          mob.group.visible = false;
+          mobs.push(mob);
+          scene.add(mob.group);
+          scene.add(mob.hpBar);
+        });
+      }
       const addMob = (kind: MobKind, x: number, z: number, hidden = false, y?: number) => {
         const mob = spawnMob(kind, x, z, y ?? world.heightAt(x, z) + 1);
         mob.group.visible = !hidden;
@@ -422,7 +435,11 @@ export default function Game() {
 
       // The one resident of the house — wanders the great room floor
       // (`guideHome`, dead centre) and is who the chat panel talks to.
-      guideRef.current = addMob('villager', world.guideHome.x, world.guideHome.z);
+      // Spawned at `guideHome.y` explicitly, not `heightAt()` — the
+      // player's own house is a roofed structure too, so scanning down
+      // from the sky at the room's centre found the *roof*, the same bug
+      // that was putting villagers on their cottages' roofs.
+      guideRef.current = addMob('villager', world.guideHome.x, world.guideHome.z, false, world.guideHome.y);
       // Regular villagers walk home and stop once they get there after dark
       // — sensible when home is a cottage across the map. The guide's home
       // is wherever it already always is, so without this flag that same
