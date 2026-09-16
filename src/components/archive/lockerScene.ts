@@ -263,6 +263,7 @@ function paintChit(
   canvas: HTMLCanvasElement,
   number: string,
   label: string,
+  pending = false,
 ) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -306,6 +307,21 @@ function paintChit(
   for (; size > 8; size -= 1) {
     ctx.font = `600 ${size}px ${HAND}`;
     if (ctx.measureText(text).width <= maxW) break;
+  }
+  /*
+   * A spare locker's card is written in pencil, a filed one's in ink.
+   *
+   * Same hand, same paper, same holder — only fainter, because the difference
+   * being drawn is "nothing here yet", not "different kind of thing". A
+   * COMING SOON card at full ink weight competes with the real names for
+   * attention all the way down the corridor and makes the room look half
+   * empty; at pencil weight it reads as what it is, a label someone put in
+   * the holder so the locker would not be blank.
+   */
+  if (pending) {
+    ctx.fillStyle = 'rgba(60,52,38,0.30)';
+    ctx.fillText(text, w / 2, h * 0.58);
+    return;
   }
   // A hair of ink bleed under the stroke, so it looks absorbed into the paper
   // rather than laid on top of it.
@@ -492,8 +508,22 @@ export function buildRoom({
    * One locker per project, both banks, and a few spare at the end so the
    * room never terminates the instant the projects run out — a locker room
    * with exactly as many lockers as you have projects looks like a set.
+   *
+   * The spare count is held between three and four, not left to drift. Both
+   * banks are built a bay at a time, so the total is always even, and the
+   * smallest even total that leaves at least three spare is what this picks:
+   * twenty-seven projects give thirty lockers and three spares, twenty-eight
+   * give thirty-two and four. Filing one more project consumes a spare
+   * silently until doing so would leave fewer than three, at which point the
+   * room grows by one bay — two lockers — and is back to four.
+   *
+   * Three is the floor because the spares are what stop the corridor reading
+   * as exactly long enough, and one lonely empty locker at the end reads as a
+   * gap rather than as room to grow. Everything downstream of `perSide` — the
+   * end wall, the lobby, the walk length, the fog — is derived from it, so
+   * the corridor lengthens by itself and nothing else needs to know.
    */
-  const perSide = Math.max(7, Math.ceil(entries.length / 2) + 3);
+  const perSide = Math.max(5, Math.ceil((entries.length + 3) / 2));
   /*
    * The banks stop, and then there is somewhere.
    *
@@ -533,26 +563,39 @@ export function buildRoom({
    * material per filed locker — about eighteen of each, which is nothing, and
    * they are only made for lockers that actually hold something.
    *
-   * Blank lockers get the shared `blankChit` instead: same paper, no writing.
-   * A room where only the used lockers have cards in the holders looks broken;
-   * a room where the spare ones have empty cards looks like a room.
+   * Spare lockers get the shared `pendingChit` instead: same paper, same hand,
+   * COMING SOON in pencil. A room where only the used lockers have cards in
+   * the holders looks broken; a room where the spare ones are labelled looks
+   * like a room that is still being filled.
    */
-  const chitCanvases: { canvas: HTMLCanvasElement; tex: THREE.Texture; number: string; label: string }[] = [];
-  const blankChit = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#ded6c3'),
-    roughness: 0.9,
-  });
-  const makeChit = (number: string, label: string) => {
+  const chitCanvases: {
+    canvas: HTMLCanvasElement; tex: THREE.Texture; number: string; label: string; pending?: boolean;
+  }[] = [];
+  const makeChit = (number: string, label: string, pending = false) => {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 128;
-    paintChit(canvas, number, label);
+    paintChit(canvas, number, label, pending);
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = anisotropy;
-    chitCanvases.push({ canvas, tex, number, label });
+    chitCanvases.push({ canvas, tex, number, label, pending });
     return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.88 });
   };
+  /*
+   * The spare lockers say COMING SOON, and they all say it identically, so
+   * they share one canvas and one material between them rather than minting
+   * three or four copies of the same texture. It still goes through
+   * `makeChit`, which means it also lands in `chitCanvases` and gets repainted
+   * along with every other card once Caveat finishes loading — a shared
+   * material built outside that list would be the one card in the room stuck
+   * in the fallback face.
+   *
+   * The number corner is left blank on purpose. The numbers are a filing
+   * sequence, and an empty locker has no place in it: stamping 28 on a locker
+   * with nothing in it implies a project 28 that is merely missing.
+   */
+  const pendingChit = makeChit('', 'Coming soon', true);
   type Pivot = {
     group: THREE.Group;
     dir: number;
@@ -644,7 +687,7 @@ export function buildRoom({
        */
       const chitFace = filed < entries.length
         ? makeChit(String(filed + 1).padStart(2, '0'), entries[filed].label)
-        : blankChit;
+        : pendingChit;
       g.add(new THREE.Mesh(box(0.012, CARD_H, CARD_W, dir * -0.021, CARD_Y, cx), chitFace));
       scene.add(g);
 
@@ -1978,7 +2021,7 @@ export function buildRoom({
   if (typeof document !== 'undefined' && document.fonts?.ready) {
     void document.fonts.ready.then(() => {
       for (const c of chitCanvases) {
-        paintChit(c.canvas, c.number, c.label);
+        paintChit(c.canvas, c.number, c.label, c.pending ?? false);
         c.tex.needsUpdate = true;
       }
       for (const n of noteCanvases) {

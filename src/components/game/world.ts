@@ -931,23 +931,25 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   /*
    * The gallery: every project, résumé chest, and career map now lives
    * *inside* the house instead of scattered around the island — mounted flat
-   * on the interior of the two long (east/west) walls, splitting the list
-   * between them. The house is built wide specifically so this fits: at
-   * `half = 7` each side wall has room for a handful of plaques with clear
-   * margin at the corners, the bed nook, the doorway, and — now that these
-   * walls have real windows — the window each of them carries. Every
-   * project now hangs on the east wall alone: with the bed moved into the
-   * north-west corner nook, "no projects near the bed" and "one wall,
-   * not two" are really the same request, so consolidating there instead
-   * of splitting west/east is what actually satisfies both at once.
+   * on the interior walls of the great room.
    *
-   * The project list is admin-controlled and unbounded, so relying on a
-   * single row along that wall wouldn't scale — it would just let plaques
-   * start overlapping once the count outgrew the wall length. `layoutOnWall`
-   * wraps into extra rows (zig-zagging up and down from eye level) once a
-   * row fills up, so adding a project in the admin panel always adds a
-   * *visible, non-overlapping* plaque here rather than crowding an existing
-   * one out.
+   * ── Why this is a wall *list* and not a wrapping row ──
+   *
+   * The previous version hung everything on the east wall and wrapped into
+   * extra rows once a row filled, zig-zagging above and below eye level:
+   * +0.85, -0.85, +1.70, -1.70, and onward. That is fine for a dozen
+   * projects and quietly broken past two dozen, because the zig-zag has no
+   * idea the room has a floor and a roof. At twenty-seven projects the east
+   * wall needs five rows, and row four lands at floorY - 0.15 — a plaque
+   * buried in the floorboards, holding a project you can never read.
+   *
+   * A wall is not an infinite surface, so the layout stops pretending it is.
+   * Rows are now an explicit list of heights that a standing player can walk
+   * up to and look at, and when a wall's rows are full the gallery moves to
+   * the next wall rather than stacking out of reach. Adding a project in the
+   * admin panel therefore always produces a plaque somebody can actually
+   * stand in front of and press E on — which is the entire point of having
+   * it in here rather than in a list.
    */
   const { cx, cz, half, baseY, doorH, wallH } = house;
   const floorY = baseY + 1;
@@ -955,51 +957,109 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   const galleryGroup = new THREE.Group();
   galleryGroup.name = 'gallery';
 
-  // Usable z-range on the east (gallery) wall: inside the corners and clear
-  // of its own window, with a full block of buffer on each side so a
-  // plaque never ends up hanging close enough to read as misplaced.
-  const eastZ0 = cz - half + 5; // clear of the east wall's back-end window
-  const eastZ1 = cz + half - 3;
+  /** Plaque geometry, needed here to keep pitch and overlap honest. */
+  const PLAQUE_W = 0.95;
+  const PLAQUE_PITCH = 1.05; // 0.95 wide, so this leaves a visible gap
 
-  const eastX = cx + half - 0.52; // just proud of the interior east wall face
-  const plaqueY = floorY + 1.55; // comfortable reading height, row 0
+  /*
+   * The rows, in fill order, as offsets from the floor.
+   *
+   * Eye level first, then one step up, then one step down, then the top row —
+   * so a small gallery is a single tidy line at reading height and only
+   * spreads vertically once it has to. The band is bounded by the room: the
+   * wall runs floorY to floorY + wallH - 1, a plaque is 0.6 tall, and the
+   * player's eye sits around floorY + 1.6. The top row at +3.25 is a comfortable
+   * look-up; anything higher starts clipping the roofline. The bottom row at
+   * +0.70 is a crouch-height glance; anything lower meets the floor.
+   */
+  const ROW_YS = [1.55, 2.4, 0.7, 3.25].filter((dy) => dy + 0.35 < wallH - 0.4);
 
-  /** Lays `count` plaques along [z0, z1], wrapping into extra rows (zig-zagging above/below eye level) once a row is full. */
-  function layoutOnWall(count: number, z0: number, z1: number, eyeY: number): { z: number; y: number }[] {
-    if (count <= 0) return [];
-    const span = Math.max(0.1, z1 - z0);
-    const pitch = 1.05; // plaques are 0.95 wide; this leaves a visible gap between them
-    const perRow = Math.max(1, Math.floor(span / pitch) + 1);
-    const rowY = (r: number) => {
-      if (r === 0) return eyeY;
-      const step = Math.ceil(r / 2);
-      return r % 2 === 1 ? eyeY + step * 0.85 : eyeY - step * 0.85;
-    };
-    const out: { z: number; y: number }[] = [];
-    for (let i = 0; i < count; i++) {
-      const row = Math.floor(i / perRow);
-      const idxInRow = i % perRow;
-      const countInRow = Math.min(perRow, count - row * perRow);
-      const t = countInRow > 1 ? idxInRow / (countInRow - 1) : 0.5;
-      out.push({ z: z0 + t * span, y: rowY(row) });
-    }
+  /**
+   * The walls the gallery is allowed to use, in order.
+   *
+   * East is the gallery wall proper: its window is confined to the back end
+   * specifically to leave the rest of it clear. West is the overflow, and its
+   * usable stretch is shorter because the north end of it is the bed nook and
+   * the framed piece over the bed, and the south end is its window. North and
+   * south are deliberately not here — between the hearth, the bookshelf, the
+   * doorway, the porch and three more windows there is no honest run of wall
+   * left on either, and a plaque wedged behind the fireplace is worse than a
+   * plaque on a second wall.
+   */
+  type GalleryWall = { x: number; z0: number; z1: number; facing: number };
+  const galleryWalls: GalleryWall[] = [
+    // East: clear of its back-end window's frame post, with corner margin.
+    { x: cx + half - 0.52, z0: cz - 2, z1: cz + 4, facing: -Math.PI / 2 },
+    // West: between the bed nook (north) and this wall's own window (south).
+    { x: cx - half + 0.52, z0: cz - 4, z1: cz + 1, facing: Math.PI / 2 },
+  ];
+
+  type Slot = { x: number; y: number; z: number; facing: number; scale: number };
+
+  /**
+   * Places `count` plaques across the walls above, filling each wall's rows
+   * before moving to the next.
+   *
+   * The last wall takes whatever is left over even if that means tightening
+   * its pitch, and plaques scale down with the pitch so they close up rather
+   * than overlap. That branch should not run — the two walls hold forty-four
+   * at full size — but "the gallery gets tighter" is the correct way to fail
+   * a hundred-project portfolio, and silently drawing plaques on top of one
+   * another is not.
+   */
+  function planGallery(count: number): Slot[] {
+    const out: Slot[] = [];
+    if (count <= 0) return out;
+
+    let placed = 0;
+    galleryWalls.forEach((wall, wi) => {
+      if (placed >= count) return;
+      const last = wi === galleryWalls.length - 1;
+      const span = Math.max(0.1, wall.z1 - wall.z0);
+      const mid = (wall.z0 + wall.z1) / 2;
+
+      const atFullPitch = Math.max(1, Math.floor(span / PLAQUE_PITCH) + 1);
+      const capacity = atFullPitch * ROW_YS.length;
+      const remaining = count - placed;
+      const take = last ? remaining : Math.min(remaining, capacity);
+
+      // Only the final wall ever compresses; the others hand off instead.
+      const perRow = last
+        ? Math.max(atFullPitch, Math.ceil(take / ROW_YS.length))
+        : atFullPitch;
+      const pitch = perRow > 1 ? Math.min(PLAQUE_PITCH, span / (perRow - 1)) : PLAQUE_PITCH;
+      const scale = Math.min(1, pitch / PLAQUE_PITCH);
+
+      for (let i = 0; i < take; i++) {
+        const row = Math.min(ROW_YS.length - 1, Math.floor(i / perRow));
+        const idxInRow = i - row * perRow;
+        const inThisRow = Math.min(perRow, take - row * perRow);
+        // Centre each row on the wall so rows stay column-aligned with one
+        // another; a half-full row spread edge to edge reads as a different
+        // layout from the full row above it.
+        const z = mid + (idxInRow - (inThisRow - 1) / 2) * pitch;
+        out.push({ x: wall.x, y: floorY + ROW_YS[row], z, facing: wall.facing, scale });
+      }
+      placed += take;
+    });
+
     return out;
   }
 
-  const eastLayout = layoutOnWall(projects.length, eastZ0, eastZ1, plaqueY);
+  const layout = planGallery(projects.length);
 
   projects.forEach((p, i) => {
-    const pos = eastLayout[i];
+    const pos = layout[i];
+    if (!pos) return;
     const plaque = buildWallPlaque(p.name);
     plaque.userData.slug = p.slug;
-    // A plane's default normal is +Z; rotating -90° about Y points it into
-    // the room from the east wall (see the derivation in the comment on
-    // buildWallPlaque below).
-    const facing = -Math.PI / 2;
-    plaque.rotation.y = facing;
-    plaque.position.set(eastX, pos.y, pos.z);
+    // A plane's default normal is +Z; rotating ±90° about Y points it into
+    // the room from whichever wall it hangs on (see buildWallPlaque below).
+    plaque.rotation.y = pos.facing;
+    plaque.position.set(pos.x, pos.y, pos.z);
+    if (pos.scale !== 1) plaque.scale.setScalar(pos.scale);
     galleryGroup.add(plaque);
-    boards.push({ slug: p.slug, position: plaque.position.clone(), facing });
+    boards.push({ slug: p.slug, position: plaque.position.clone(), facing: pos.facing });
   });
   group.add(galleryGroup);
 
