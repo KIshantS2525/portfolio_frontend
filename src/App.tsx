@@ -1,9 +1,12 @@
+// src/App.tsx
 import { lazy, Suspense, useEffect } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import Home from '@/routes/Home';
 import { SmoothScroll } from '@/components/core/SmoothScroll';
 import { AmbientField } from '@/components/core/AmbientField';
 import { DayNightToggle } from '@/components/core/DayNightToggle';
+import { CollapseButton } from '@/components/collapse/CollapseButton';
+import { useCollapseActive } from '@/lib/collapseState';
 import { useProfile } from '@/lib/useContent';
 
 /** Admin is its own chunk — none of it ships to a visitor who never opens it. */
@@ -88,7 +91,28 @@ function RouteMeta() {
  */
 function SiteChrome() {
   const { pathname } = useLocation();
+  const collapsing = useCollapseActive();
+
   if (pathname.startsWith('/archive') || pathname.startsWith('/game')) return null;
+
+  /*
+   * The collapse wants all three gone for exactly the same reasons the two
+   * routes above do — it just isn't a route, so `pathname` can't see it. It
+   * happens on Home, at Home's URL, which is why it needs its own signal.
+   *
+   * Lenis is the urgent one. It preventDefaults wheel events on the document,
+   * and from slice 4 onward the world is driven by pointer lock and mouse
+   * movement; two things claiming the same input is how you get a camera that
+   * stutters for reasons nobody can find later.
+   *
+   * The other two are about not breaking the illusion: both are pinned to the
+   * viewport, and the page is about to stop being pinned to anything. Motes
+   * drifting in front of a site that is flying away from the camera, and a
+   * theme cord hanging over open sky, both read as bugs the instant the
+   * sequence starts.
+   */
+  if (collapsing) return null;
+
   return (
     <>
       <SmoothScroll />
@@ -98,11 +122,36 @@ function SiteChrome() {
   );
 }
 
+/**
+ * The warning button, gated to the one page that can actually collapse.
+ *
+ * `#collapse-stage` only exists inside Home, so on any other path the button
+ * would be a control that fails safe and does nothing — which is worse than
+ * absent, because it still looks pressable. The admin panel in particular has
+ * no business offering to demolish the site while someone is editing content
+ * in it.
+ */
+function CollapseEntry() {
+  const { pathname } = useLocation();
+  if (pathname.startsWith('/admin') || pathname.startsWith('/archive') || pathname.startsWith('/game')) {
+    return null;
+  }
+  return <CollapseButton />;
+}
+
 export default function App() {
   return (
     <>
       <SiteChrome />
       <RouteMeta />
+      {/*
+        At this level for the same reason PullCord is: both headers on this
+        site carry a backdrop-filter, and a filter on any ancestor re-anchors
+        `position: fixed` descendants to that ancestor instead of the viewport.
+        Mounted inside StudioNav, the button would hang off the nav rather than
+        off the top-left of the screen.
+      */}
+      <CollapseEntry />
       <a
         href="#work"
         className="sr-only focus:not-sr-only focus:fixed focus:left-[24px] focus:top-[24px] focus:z-[100] focus:rounded-full focus:bg-iris focus:px-[18px] focus:py-[10px] focus:text-[14px] focus:text-white"
@@ -122,9 +171,7 @@ export default function App() {
         <Route
           path="/archive"
           element={
-            <Suspense
-              fallback={<div className="min-h-screen bg-[var(--surface)]" aria-hidden />}
-            >
+            <Suspense fallback={<div className="min-h-screen bg-[var(--surface)]" aria-hidden />}>
               <Archive />
             </Suspense>
           }

@@ -1,0 +1,411 @@
+/* src/components/collapse/collapse.css */
+
+/*
+ * ── The stage ──
+ *
+ * Three nested elements, and the nesting is load-bearing:
+ *
+ *   #collapse-viewport   holds the `perspective`, and once active becomes a
+ *                        fixed, viewport-sized box in its own right. See the
+ *                        long note on the active rule below — this element
+ *                        being fixed is not tidiness, it is the fix for a bug
+ *                        that broke two separate things at once.
+ *
+ *   #collapse-stage      the sheet. Exactly viewport size, absolutely
+ *                        positioned inside the viewport box. <main> here is
+ *                        roughly 1100vh because of GraphJourney's pinned
+ *                        sequence, and transforming an eleven-screen-tall
+ *                        element pivots it around a point five screens below
+ *                        anything the visitor can see.
+ *
+ *   #collapse-shift      carries a translateY of the scroll offset, so the
+ *                        moment the stage is pinned the same pixels stay under
+ *                        the same coordinates and nothing jumps.
+ */
+
+#collapse-viewport {
+  perspective: none;
+}
+
+/* ── Active: the page becomes a sheet ─────────────────────────────────── */
+
+/*
+ * ── Why this element is fixed and sized, and not just a perspective holder ──
+ *
+ * `perspective` makes an element the containing block for its `position:
+ * fixed` descendants — the same rule as `transform` and `backdrop-filter`,
+ * already documented on SiteChrome for PullCord and on the stage below for
+ * GraphJourney's sticky layer. It is the third distinct bug this rule has
+ * caused in this feature alone.
+ *
+ * With perspective on a normal-flow div, two things broke at once and for one
+ * reason. #collapse-viewport's only child is the pinned stage, so the div
+ * itself has ZERO height. Every fixed descendant resolving `inset: 0` against
+ * a zero-height box therefore got a zero-height box:
+ *
+ *   · the starfield ::before collapsed to nothing, so the space behind the
+ *     sheet never appeared and the whole screen stayed black — which read as
+ *     a black band covering everything, when actually it was just the page
+ *     background with no backdrop painted over it;
+ *
+ *   · the stage anchored to the TOP of that zero-height box rather than the
+ *     viewport, which is why the sheet sat up near the nav instead of centred
+ *     on screen.
+ *
+ * Making this element fixed and explicitly viewport-sized gives everything
+ * inside it a container that is genuinely the shape of the screen. The stage
+ * then only needs `position: absolute`, because its containing block is now
+ * correct by construction rather than by luck.
+ */
+.collapse-active #collapse-viewport {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  z-index: 1;
+
+  /*
+   * Perspective and the recede distance together decide the sheet's final
+   * on-screen size, and that size makes or breaks the shot. Scale is
+   * `perspective / (perspective + |Z|)`, so 2200px of perspective against
+   * 1650px of Z renders at 57% of the screen — a large dark rectangle filling
+   * the window, not a page floating in space.
+   *
+   * 1600 here against RECEDE_Z of -5800 lands at about 22%. If you change one,
+   * recompute the other.
+   *
+   * Kept long rather than short deliberately: a short perspective gives a
+   * dramatic wide-angle rush that distorts hard at the edges, and the edges
+   * are text.
+   */
+  perspective: 1600px;
+  perspective-origin: 50% 46%;
+  transform-style: preserve-3d;
+}
+
+/*
+ * The sheet: a window onto the page, exactly viewport size.
+ *
+ * `overflow: hidden` is what makes it an object with four edges. Without it
+ * the remaining ten viewports of document stay laid out below, tilting up into
+ * frame as the sheet rotates — a rectangle of content with a tail of page
+ * hanging off the bottom.
+ */
+.collapse-active #collapse-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 1;
+
+  transform-origin: 50% 50%;
+  transform-style: preserve-3d;
+  will-change: transform;
+  backface-visibility: hidden;
+
+  /*
+   * ── Why the sheet needs a real border and not a hint of one ──
+   *
+   * This site's surface is near-black, the space behind it is near-black, and
+   * at scroll 0 the visible content is GraphJourney's hero — itself almost
+   * entirely black. So the sheet is a black rectangle on black, and the only
+   * thing that can say "this is a physical object receding" is its edge.
+   *
+   * An earlier version set that edge at 9% white and it was, correctly,
+   * invisible. This is a 2px lit edge with a brighter hairline inside it,
+   * which is how a real sheet catches light: the cut edge is brighter than
+   * either face. With a hard shadow beneath and a cool bloom around, it reads
+   * as an object even when nothing is printed on it.
+   */
+  border-radius: 2px;
+  box-shadow:
+    /* the lit cut edge */
+    0 0 0 2px rgba(226, 232, 255, 0.72),
+    /* a brighter hairline just inside it, so the edge has thickness */
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    /* the sheet's own shadow, thrown down and back */
+    0 40px 90px -10px rgba(0, 0, 0, 0.95),
+    /* cool bloom, so it sits IN the space rather than on top of it */
+    0 0 160px -20px rgba(130, 150, 255, 0.4);
+
+  /*
+   * Once it starts moving it must stop being interactive. Halfway through the
+   * recede the page is still nominally hit-testable, and a hover highlight
+   * firing on a sheet flying into space is exactly the small wrongness that
+   * breaks the illusion.
+   */
+  pointer-events: none;
+}
+
+/*
+ * A faint wash over the page content itself.
+ *
+ * Not decoration: a sheet lit from the front has a value, and a page that is
+ * pure #000 has none, so without this the "paper" is a hole in space with a
+ * bright frame around it. Four percent of light is enough to give the surface
+ * a reading without washing out content that IS there.
+ *
+ * On ::after of the stage so it rides the same transform and covers whatever
+ * the page happens to be showing, including canvases.
+ */
+.collapse-active #collapse-stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background:
+    linear-gradient(170deg, rgba(190, 205, 255, 0.07), rgba(120, 140, 220, 0.02) 55%, transparent),
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 70%);
+  pointer-events: none;
+}
+
+.collapse-active #collapse-shift {
+  will-change: transform;
+}
+
+/*
+ * ── The space behind ──
+ *
+ * A placeholder for the real environment that arrives in slice 2. It exists
+ * now because without something behind it the sheet has nothing to recede
+ * INTO, and depth you cannot see is depth that is not there.
+ *
+ * `position: absolute` rather than fixed: its parent is now a fixed,
+ * viewport-sized box, so absolute against that parent IS the viewport — and it
+ * sidesteps the containing-block rule entirely rather than depending on it
+ * resolving the way this file happens to expect.
+ *
+ * On ::before of the viewport rather than a new element so it costs no DOM and
+ * cannot be left behind by a component unmounting at the wrong moment.
+ */
+.collapse-active #collapse-viewport::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(255, 255, 255, 0.8), transparent 60%),
+    radial-gradient(1px 1px at 78% 14%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(1.6px 1.6px at 62% 68%, rgba(255, 255, 255, 0.75), transparent 60%),
+    radial-gradient(1px 1px at 28% 78%, rgba(255, 255, 255, 0.55), transparent 60%),
+    radial-gradient(1.2px 1.2px at 88% 58%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(1px 1px at 44% 36%, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(1.4px 1.4px at 8% 52%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(1px 1px at 70% 88%, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(1.2px 1.2px at 34% 8%, rgba(255, 255, 255, 0.65), transparent 60%),
+    radial-gradient(1px 1px at 54% 92%, rgba(255, 255, 255, 0.45), transparent 60%),
+    radial-gradient(1.3px 1.3px at 92% 30%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(1px 1px at 18% 64%, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(ellipse 120% 90% at 50% 44%, #10142e 0%, #070a18 52%, #01010a 100%);
+  /*
+   * Faded in rather than switched on. Appearing on the click frame would
+   * announce that something was waiting behind the page all along; arriving
+   * over the first second reads as the space opening up as the sheet gets out
+   * of the way.
+   */
+  opacity: 0;
+  animation: collapse-space-in 1600ms 200ms ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes collapse-space-in {
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * Page scroll is locked for the whole sequence.
+ *
+ * Both elements rather than one: html alone leaves iOS Safari able to
+ * rubber-band, body alone does nothing in engines where the scroll container
+ * is the document element.
+ *
+ * Deliberately NOT `position: fixed` on body, which is the other common
+ * recipe — it resets scroll to the top, and the exit has to put the visitor
+ * back exactly where they were.
+ */
+.collapse-active,
+.collapse-active body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/*
+ * The footer sits outside the stage, so with the stage pinned it rides up
+ * under the nav and shows through as a stray line of text over open space.
+ *
+ * Hidden rather than unmounted because it is not this feature's component to
+ * own, and because it has to come straight back on exit with no remount cost.
+ */
+.collapse-active footer {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+/* ── The warning button ─────────────────────────────────────────────────── */
+
+/*
+ * Fixed, top-left, above everything.
+ *
+ * Mounted at App level, NOT inside StudioNav: the nav has a `backdrop-filter`,
+ * and a filter on any ancestor re-anchors `position: fixed` descendants to
+ * that ancestor instead of the viewport. Top-left is also the one empty corner
+ * — the nav sits centre, the theme cord hangs top-right.
+ */
+.collapse-button {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 90;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+
+  padding: 9px 15px 9px 12px;
+  border-radius: 6px;
+
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+
+  color: #ffb4a8;
+  background: rgba(28, 10, 8, 0.72);
+  border: 1px solid rgba(255, 90, 70, 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+
+  cursor: pointer;
+  /*
+   * `transform` is left out of the transition on purpose — the glitch
+   * keyframes below drive it, and transitioning a property an animation is
+   * also writing makes the two fight on every hover.
+   */
+  transition:
+    color 200ms ease,
+    border-color 200ms ease,
+    background 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.collapse-button:hover {
+  color: #fff0ec;
+  border-color: rgba(255, 90, 70, 0.9);
+  background: rgba(52, 14, 10, 0.85);
+  box-shadow: 0 0 26px rgba(255, 70, 50, 0.3);
+}
+
+.collapse-button:focus-visible {
+  outline: 2px solid #ff8a76;
+  outline-offset: 3px;
+}
+
+/*
+ * The border pulse, on a pseudo-element rather than the button's own
+ * box-shadow so it can scale past the edge without nudging layout, and so
+ * hover's shadow and this can coexist instead of overwriting each other.
+ */
+.collapse-button::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 90, 70, 0.55);
+  animation: collapse-pulse 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes collapse-pulse {
+  0% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.14);
+  }
+}
+
+/*
+ * The glitch: long gaps of nothing with a two-frame jolt at the end.
+ *
+ * Something that twitches every seven seconds reads as unstable and is hard to
+ * ignore. Something that twitches continuously becomes wallpaper inside ten
+ * seconds and stops being noticed at all.
+ */
+.collapse-button {
+  animation: collapse-glitch 7s steps(1, end) infinite;
+}
+
+@keyframes collapse-glitch {
+  0%,
+  96% {
+    transform: translate3d(0, 0, 0);
+  }
+  97% {
+    transform: translate3d(-2px, 1px, 0);
+  }
+  98% {
+    transform: translate3d(2px, -1px, 0);
+  }
+  99% {
+    transform: translate3d(-1px, 0, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.collapse-button__icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Gone once the sequence owns the screen. */
+.collapse-active .collapse-button {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 320ms ease;
+}
+
+/*
+ * ── Touch devices ──
+ *
+ * Desktop-only for now: the control scheme is pointer lock and WASD, neither
+ * of which exists on a phone. Rather than let someone tap it and land in a
+ * world they cannot move through, the button says so and does nothing.
+ */
+.collapse-button--unavailable {
+  color: rgba(255, 180, 168, 0.55);
+  border-color: rgba(255, 90, 70, 0.22);
+  cursor: not-allowed;
+  animation: none;
+}
+
+.collapse-button--unavailable::before {
+  animation: none;
+  opacity: 0.25;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────────
+ *
+ * Pulse and glitch both go. The button stays exactly as visible and as red as
+ * it was — this is a warning, and someone who asked for less motion has not
+ * asked to be told less about what a button does.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .collapse-button,
+  .collapse-button::before,
+  .collapse-active #collapse-viewport::before {
+    animation: none;
+  }
+
+  .collapse-active #collapse-viewport::before {
+    opacity: 1;
+  }
+}
