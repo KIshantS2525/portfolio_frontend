@@ -1,3 +1,4 @@
+// src/components/core/Marquee.tsx
 import { useEffect, useRef, useState } from 'react';
 import { useVisible } from '@/components/core/WhenVisible';
 
@@ -14,6 +15,25 @@ import { useVisible } from '@/components/core/WhenVisible';
  * both themes. Anything without an official icon falls back to a wordmark
  * rather than an invented path.
  */
+/*
+ * The icon paths, once any marquee (or anyone else) has loaded them.
+ *
+ * Module-level so a Marquee mounted AFTER the load starts with icons instead of
+ * wordmarks. That matters for exactly one caller: the Collapse World poster
+ * mounts a second copy of these rows the instant the button is pressed, frozen
+ * (so its own visibility-gated load below never runs), and a poster of the
+ * homepage with the logos swapped for text is not a replica of the homepage.
+ */
+let loadedLogos: Record<string, string> | null = null;
+
+/** Loads the icon paths into the module cache. Safe to call any number of times. */
+export function preloadMarqueeLogos(): Promise<void> {
+  if (loadedLogos) return Promise.resolve();
+  return import('@/lib/logos.generated').then((m) => {
+    loadedLogos = m.LOGO_PATHS;
+  });
+}
+
 export function Marquee({
   items,
   speed = 42,
@@ -32,12 +52,12 @@ export function Marquee({
   /* The icon paths are their own chunk — a wordmark shows for the instant
      before they arrive, which is invisible in practice since the rows sit
      well below the fold. */
-  const [logos, setLogos] = useState<Record<string, string>>({});
+  const [logos, setLogos] = useState<Record<string, string>>(() => loadedLogos ?? {});
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
-    import('@/lib/logos.generated').then((m) => {
-      if (!cancelled) setLogos(m.LOGO_PATHS);
+    preloadMarqueeLogos().then(() => {
+      if (!cancelled && loadedLogos) setLogos(loadedLogos);
     });
     return () => {
       cancelled = true;

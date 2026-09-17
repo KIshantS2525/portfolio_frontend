@@ -1,62 +1,35 @@
 /* src/components/collapse/collapse.css */
 
 /*
- * ── The stage ──
+ * ── Structure ──
  *
- * Three nested elements, and the nesting is load-bearing:
+ *   #collapse-viewport  fixed, viewport-sized, owns the perspective.
+ *   #collapse-stage     position and scale of the sheet. Origin TOP CENTRE,
+ *                       which is what makes the fit arithmetic in
+ *                       paperRecede.ts simple.
+ *   #collapse-sheet     rotation only. Origin BOTTOM CENTRE, because a wall
+ *                       falls around its base. Two origins cannot live on one
+ *                       element, which is the only reason this is two elements.
+ *   #collapse-live      the real page. Hidden the moment the sequence starts.
+ *   #collapse-poster    the sheet's actual content. See CollapsePoster.tsx.
  *
- *   #collapse-viewport   holds the `perspective`, and once active becomes a
- *                        fixed, viewport-sized box in its own right. See the
- *                        long note on the active rule below — this element
- *                        being fixed is not tidiness, it is the fix for a bug
- *                        that broke two separate things at once.
+ * ── The containing-block rule, which broke this three times ──
  *
- *   #collapse-stage      the sheet. Exactly viewport size, absolutely
- *                        positioned inside the viewport box. <main> here is
- *                        roughly 1100vh because of GraphJourney's pinned
- *                        sequence, and transforming an eleven-screen-tall
- *                        element pivots it around a point five screens below
- *                        anything the visitor can see.
- *
- *   #collapse-shift      carries a translateY of the scroll offset, so the
- *                        moment the stage is pinned the same pixels stay under
- *                        the same coordinates and nothing jumps.
+ * `perspective`, `transform` and `backdrop-filter` all make an element the
+ * containing block for its `position: fixed` descendants. Put perspective on a
+ * normal-flow div whose only child is pinned, and that div has zero height — so
+ * every fixed thing inside it resolves `inset: 0` against a zero-height box and
+ * collapses to nothing. That is why #collapse-viewport is explicitly fixed and
+ * sized here, and why everything inside it is `absolute` rather than `fixed`.
+ * It is the same rule already documented on SiteChrome for PullCord.
  */
 
 #collapse-viewport {
   perspective: none;
 }
 
-/* ── Active: the page becomes a sheet ─────────────────────────────────── */
+/* ── Active ─────────────────────────────────────────────────────────────── */
 
-/*
- * ── Why this element is fixed and sized, and not just a perspective holder ──
- *
- * `perspective` makes an element the containing block for its `position:
- * fixed` descendants — the same rule as `transform` and `backdrop-filter`,
- * already documented on SiteChrome for PullCord and on the stage below for
- * GraphJourney's sticky layer. It is the third distinct bug this rule has
- * caused in this feature alone.
- *
- * With perspective on a normal-flow div, two things broke at once and for one
- * reason. #collapse-viewport's only child is the pinned stage, so the div
- * itself has ZERO height. Every fixed descendant resolving `inset: 0` against
- * a zero-height box therefore got a zero-height box:
- *
- *   · the starfield ::before collapsed to nothing, so the space behind the
- *     sheet never appeared and the whole screen stayed black — which read as
- *     a black band covering everything, when actually it was just the page
- *     background with no backdrop painted over it;
- *
- *   · the stage anchored to the TOP of that zero-height box rather than the
- *     viewport, which is why the sheet sat up near the nav instead of centred
- *     on screen.
- *
- * Making this element fixed and explicitly viewport-sized gives everything
- * inside it a container that is genuinely the shape of the screen. The stage
- * then only needs `position: absolute`, because its containing block is now
- * correct by construction rather than by luck.
- */
 .collapse-active #collapse-viewport {
   position: fixed;
   inset: 0;
@@ -66,117 +39,232 @@
   z-index: 1;
 
   /*
-   * Perspective and the recede distance together decide the sheet's final
-   * on-screen size, and that size makes or breaks the shot. Scale is
-   * `perspective / (perspective + |Z|)`, so 2200px of perspective against
-   * 1650px of Z renders at 57% of the screen — a large dark rectangle filling
-   * the window, not a page floating in space.
+   * FALLBACK ONLY — the live values are written inline by `fitPoster` from
+   * PERSPECTIVE_PX and PERSPECTIVE_ORIGIN_Y in paperRecede.ts, because the WebGL
+   * handoff camera is derived from them to the pixel and a second copy here is
+   * handover bug #3 waiting to happen. Change them there; this only covers the
+   * frame before JS runs.
    *
-   * 1600 here against RECEDE_Z of -5800 lands at about 22%. If you change one,
-   * recompute the other.
-   *
-   * Kept long rather than short deliberately: a short perspective gives a
-   * dramatic wide-angle rush that distorts hard at the edges, and the edges
-   * are text.
+   * Perspective decides how hard the fall reads. Short perspective gives a
+   * violent wide-angle drop that distorts the sheet's near edge into the
+   * camera; long perspective makes it fall like a sheet of card seen from
+   * across a room. 1500 is close enough to feel the depth on the hinge and far
+   * enough that the poster's text stays rectangular while it recedes.
    */
-  perspective: 1600px;
-  perspective-origin: 50% 46%;
+  perspective: 1500px;
+  perspective-origin: 50% 42%;
   transform-style: preserve-3d;
 }
 
+/* The real page. Gone as soon as the poster takes over. */
+.collapse-active #collapse-live {
+  display: none;
+}
+
 /*
- * The sheet: a window onto the page, exactly viewport size.
+ * Position and scale. Written by JS every frame of the recede, so almost
+ * nothing is set here — only the things the arithmetic assumes.
  *
- * `overflow: hidden` is what makes it an object with four edges. Without it
- * the remaining ten viewports of document stay laid out below, tilting up into
- * frame as the sheet rotates — a rectangle of content with a tail of page
- * hanging off the bottom.
+ * The width is the viewport's: the poster is a replica of the page, laid out
+ * at the width the page is laid out at (see `fitPoster`). The resting
+ * transform is `near` — centred, scale 1 — so the frames between the poster
+ * mounting and the first WAAPI keyframe already show it exactly where the live
+ * page was, instead of shifted half a screen right by `left: 50%`.
  */
 .collapse-active #collapse-stage {
   position: absolute;
-  inset: 0;
-  overflow: hidden;
-  z-index: 1;
-
-  transform-origin: 50% 50%;
+  top: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translate(-50%, 0);
+  transform-origin: 50% 0;
   transform-style: preserve-3d;
   will-change: transform;
-  backface-visibility: hidden;
-
-  /*
-   * ── Why the sheet needs a real border and not a hint of one ──
-   *
-   * This site's surface is near-black, the space behind it is near-black, and
-   * at scroll 0 the visible content is GraphJourney's hero — itself almost
-   * entirely black. So the sheet is a black rectangle on black, and the only
-   * thing that can say "this is a physical object receding" is its edge.
-   *
-   * An earlier version set that edge at 9% white and it was, correctly,
-   * invisible. This is a 2px lit edge with a brighter hairline inside it,
-   * which is how a real sheet catches light: the cut edge is brighter than
-   * either face. With a hard shadow beneath and a cool bloom around, it reads
-   * as an object even when nothing is printed on it.
-   */
-  border-radius: 2px;
-  box-shadow:
-    /* the lit cut edge */
-    0 0 0 2px rgba(226, 232, 255, 0.72),
-    /* a brighter hairline just inside it, so the edge has thickness */
-    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
-    /* the sheet's own shadow, thrown down and back */
-    0 40px 90px -10px rgba(0, 0, 0, 0.95),
-    /* cool bloom, so it sits IN the space rather than on top of it */
-    0 0 160px -20px rgba(130, 150, 255, 0.4);
-
-  /*
-   * Once it starts moving it must stop being interactive. Halfway through the
-   * recede the page is still nominally hit-testable, and a hover highlight
-   * firing on a sheet flying into space is exactly the small wrongness that
-   * breaks the illusion.
-   */
   pointer-events: none;
 }
 
-/*
- * A faint wash over the page content itself.
- *
- * Not decoration: a sheet lit from the front has a value, and a page that is
- * pure #000 has none, so without this the "paper" is a hole in space with a
- * bright frame around it. Four percent of light is enough to give the surface
- * a reading without washing out content that IS there.
- *
- * On ::after of the stage so it rides the same transform and covers whatever
- * the page happens to be showing, including canvases.
- */
-.collapse-active #collapse-stage::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  background:
-    linear-gradient(170deg, rgba(190, 205, 255, 0.07), rgba(120, 140, 220, 0.02) 55%, transparent),
-    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 255, 255, 0.05), transparent 70%);
-  pointer-events: none;
-}
-
-.collapse-active #collapse-shift {
+/* Rotation only, pivoting on the bottom edge: the hinge. */
+.collapse-active #collapse-sheet {
+  transform-origin: 50% 100%;
+  transform-style: preserve-3d;
   will-change: transform;
 }
 
 /*
- * ── The space behind ──
+ * The sheet's edge.
  *
- * A placeholder for the real environment that arrives in slice 2. It exists
- * now because without something behind it the sheet has nothing to recede
- * INTO, and depth you cannot see is depth that is not there.
+ * This site's surface is near-black and so is the space behind it, so a
+ * correctly receding sheet with a subtle border is invisible — an earlier
+ * version set it at 9% white and could not be seen at all. This is a 2px lit
+ * edge with a brighter hairline inside it, which is how a real sheet catches
+ * light: the cut edge is brighter than either face.
  *
- * `position: absolute` rather than fixed: its parent is now a fixed,
- * viewport-sized box, so absolute against that parent IS the viewport — and it
+ * The background is the page's own surface token, so the sheet is the page in
+ * whichever theme the visitor is in. posterTexture.ts reads it back from the
+ * computed style and restates the two edge values — keep those in step.
+ */
+.collapse-active #collapse-poster {
+  position: relative;
+  width: 100%;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 2px rgba(226, 232, 255, 0.7),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 50px 110px -12px rgba(0, 0, 0, 0.95),
+    0 0 180px -20px rgba(130, 150, 255, 0.38);
+  /* The live page ends in the footer's own bottom padding; nothing to add. */
+  overflow: hidden;
+}
+
+/* ── Poster: the replica's overrides ───────────────────────────────────── */
+
+/*
+ * The poster renders the real homepage components, and these are the few
+ * places where "real" and "a sheet of paper being thrown" disagree.
+ *
+ * REVEALS. <Reveal> starts at opacity 0 and waits for an IntersectionObserver.
+ * Inside a scaled, rotating sheet that observer fires late or never, and the
+ * poster would hit the ground with sections still invisible. Pinned open.
+ * `will-change` goes too: dozens of promoted layers inside a 3D-transformed
+ * sheet is a lot of compositor memory for elements that never animate here.
+ */
+#collapse-poster .reveal {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
+  will-change: auto !important;
+}
+
+/*
+ * NO BACKDROP BLUR. The glass cards blur what is behind them. Inside a sheet in
+ * a 3D rendering context, every one of those is a live blur recomputed each
+ * frame of the throw — twenty-nine of them. On a near-black page the blur shows
+ * nothing anyway, so it is dropped rather than paid for.
+ */
+#collapse-poster .glass-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/*
+ * The hero graph, sized and parked the way the live one is.
+ *
+ * The live sphere is framed off the CANVAS HEIGHT, not the width (see EDGE and
+ * ZOOM in GraphJourney.tsx): its projected size is a fixed share of the
+ * viewport height, and it sits a fixed distance in from the right edge in that
+ * same unit. So everything here is in `vh` too. Measured off the live page at
+ * scroll 0: about 46vh across, its right edge ~18vh in from the screen edge,
+ * vertically centred. In `vw` the first attempt was 50vw — nearly twice the
+ * size — which is what made the poster's graph dwarf the name beside it.
+ */
+#collapse-poster .poster-graph {
+  --graph-size: 46vh;
+  position: absolute;
+  top: 50%;
+  right: 18vh;
+  width: var(--graph-size);
+  height: var(--graph-size);
+  /* Negative margin rather than a transform: the painter reads rects, and an
+     untransformed box keeps every label's rect where its text actually is. */
+  margin-top: calc(var(--graph-size) / -2);
+  /* Labels are sized in em off this, so they scale with the graph. */
+  font-size: calc(var(--graph-size) / 64);
+  pointer-events: none;
+}
+
+#collapse-poster .poster-graph svg {
+  display: block;
+  overflow: visible;
+}
+
+/*
+ * Tiny, like the live hero's sprite labels — at this size they are texture on
+ * the sphere, not something to read. A floor of 6px so they never collapse to
+ * a smear on a short window.
+ */
+#collapse-poster .poster-graph__label {
+  position: absolute;
+  white-space: nowrap;
+  font-size: max(6px, 1em);
+  line-height: 1;
+  color: var(--text-body);
+  opacity: 0.75;
+}
+
+#collapse-poster .poster-graph__label--person {
+  font-size: max(8px, 1.45em);
+  color: var(--text);
+  opacity: 1;
+}
+
+#collapse-poster .poster-graph__label--role {
+  font-size: max(6.5px, 1.1em);
+  color: var(--text);
+  opacity: 0.85;
+}
+
+/* ── The space behind (fallback) ── lives below the world layer. */
+
+/* ── The world layer ────────────────────────────────────────────────────── */
+
+/*
+ * The WebGL canvas: real sky, stars, moon, ground.
+ *
+ * ── Why it is outside #collapse-viewport ──
+ *
+ * The viewport is `transform-style: preserve-3d`, so everything inside it shares
+ * one 3D rendering context and is depth-sorted rather than stacked. A canvas in
+ * there sits at z = 0. The fallen sheet does not — its far end is thousands of
+ * px behind the screen plane — so the browser would sort the sheet BEHIND the
+ * canvas and the poster would disappear under the sky at the exact moment it
+ * lands. Out here it is ordinary z-index: world at 0, viewport at 1, and
+ * nothing can reorder that.
+ *
+ * Hidden entirely at idle. It is an empty div then, but a fixed full-screen
+ * element over the page is a thing that eats clicks the day someone adds a
+ * background to it.
+ */
+#collapse-world {
+  display: none;
+}
+
+.collapse-active #collapse-world {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#collapse-world canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+[data-collapse-world='ready'] #collapse-world canvas {
+  opacity: 1;
+}
+
+/* ── The space behind (fallback) ────────────────────────────────────────── */
+
+/*
+ * The CSS starfield from slice 1, kept as the fallback. It is what shows for
+ * the second or so before the world's first frame, and permanently if the
+ * world never arrives — no WebGL, or the chunk failed to load — in which case
+ * the sequence plays exactly as it did before slice 2.
+ *
+ * It sits in the viewport, ABOVE the world layer, so it has to get out of the
+ * way once the world is drawing: see the `ready` rule below.
+ *
+ * `absolute` against a parent that is already fixed and viewport-sized — which
  * sidesteps the containing-block rule entirely rather than depending on it
- * resolving the way this file happens to expect.
- *
- * On ::before of the viewport rather than a new element so it costs no DOM and
- * cannot be left behind by a component unmounting at the wrong moment.
+ * resolving the way this file hopes.
  */
 .collapse-active #collapse-viewport::before {
   content: '';
@@ -195,14 +283,7 @@
     radial-gradient(1.2px 1.2px at 34% 8%, rgba(255, 255, 255, 0.65), transparent 60%),
     radial-gradient(1px 1px at 54% 92%, rgba(255, 255, 255, 0.45), transparent 60%),
     radial-gradient(1.3px 1.3px at 92% 30%, rgba(255, 255, 255, 0.6), transparent 60%),
-    radial-gradient(1px 1px at 18% 64%, rgba(255, 255, 255, 0.5), transparent 60%),
     radial-gradient(ellipse 120% 90% at 50% 44%, #10142e 0%, #070a18 52%, #01010a 100%);
-  /*
-   * Faded in rather than switched on. Appearing on the click frame would
-   * announce that something was waiting behind the page all along; arriving
-   * over the first second reads as the space opening up as the sheet gets out
-   * of the way.
-   */
   opacity: 0;
   animation: collapse-space-in 1600ms 200ms ease-out forwards;
   pointer-events: none;
@@ -215,15 +296,286 @@
 }
 
 /*
- * Page scroll is locked for the whole sequence.
+ * A second animation rather than a transition. The fade-in above holds its end
+ * value with `forwards`, and an animated value never transitions — swapping the
+ * animation out would snap it straight to the rule's resting opacity. Starting
+ * a new animation from 1 is the only way to fade out something an animation is
+ * holding.
+ */
+[data-collapse-world='ready'] #collapse-viewport::before {
+  animation: collapse-space-out 900ms ease forwards;
+}
+
+@keyframes collapse-space-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ── The glitch that covers the swap ────────────────────────────────────── */
+
+/*
+ * At the click the live page is replaced by the poster, and they are
+ * deliberately not identical — one has a running particle graph in it and the
+ * other cannot. Rather than hide that pop, it gets covered by a two-frame
+ * chromatic tear, which is the same visual language the warning button has been
+ * twitching in since the visitor arrived. A tear in the page is exactly what
+ * the button promised.
+ */
+#collapse-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 60, 40, 0.5), transparent 30%),
+    linear-gradient(270deg, rgba(60, 160, 255, 0.5), transparent 30%),
+    rgba(255, 255, 255, 0.85);
+  animation: collapse-flash 240ms steps(1, end) forwards;
+}
+
+@keyframes collapse-flash {
+  0% {
+    opacity: 0.9;
+    transform: translateX(-6px);
+  }
+  30% {
+    opacity: 0.5;
+    transform: translateX(7px);
+  }
+  55% {
+    opacity: 0.75;
+    transform: translateX(-3px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+}
+
+/* ── Debris ─────────────────────────────────────────────────────────────── */
+
+/*
+ * ── Why every value here comes in as a custom property ──
  *
+ * The obvious version derives each rock's size and timing from its index inside
+ * `calc()` — `calc(2px + (var(--i) % 4) * 2px)` and so on. That does not work.
+ * CSS `calc()` has NO modulo operator, and `%` inside it is parsed as a
+ * percentage sign, so every one of those expressions is a syntax error and the
+ * parser throws the whole rule away: no rocks, and nothing in the console at
+ * runtime to say why. So the arithmetic happens in JS and arrives here already
+ * resolved. See ROCKS in CollapsePoster.tsx.
+ *
+ * ── Why this is one shot and not a loop ──
+ *
+ * It used to be `infinite`, and pale, and evenly spaced, and every piece the
+ * same size. That is a precise recipe for snow, which is exactly what it looked
+ * like — and worse, it kept falling forever, so it was still drifting down long
+ * after the wall had hit the ground. Rubble is thrown loose by an event and
+ * then it is over; a loop turns a consequence into weather.
+ *
+ * `both` holds the final frame, which is opacity 0 below the bottom of the
+ * screen — so once the last stone lands there is nothing left on screen and
+ * nothing still animating.
+ *
+ * Dormant until the rumble. `animation-play-state` rather than a display
+ * toggle, so the pieces are already laid out and composited when the beat
+ * arrives — starting twenty-six elements from scratch on the same frame as the
+ * shake is a guaranteed hitch.
+ */
+#collapse-debris {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+#collapse-debris span {
+  position: absolute;
+  top: -60px;
+  left: var(--x);
+  width: var(--w);
+  height: var(--h);
+  border-radius: 1px;
+  background: var(--tone);
+  opacity: 0;
+  animation: collapse-rock var(--dur) var(--delay) cubic-bezier(0.4, 0, 0.9, 0.6) 1 both;
+  animation-play-state: paused;
+}
+
+[data-collapse-phase='rumble'] #collapse-debris span,
+[data-collapse-phase='quake'] #collapse-debris span {
+  animation-play-state: running;
+}
+
+/*
+ * Accelerating, not linear: `cubic-bezier` above does the falling, so the rock
+ * leaves the top slowly and is moving fast by the time it exits the bottom.
+ * Linear debris reads as a texture being scrolled past the camera.
+ */
+@keyframes collapse-rock {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  6% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--drift), 112vh, 0) rotate(var(--spin));
+  }
+}
+
+/* ── Shake ──────────────────────────────────────────────────────────────── */
+
+/*
+ * Applied to the viewport, which moves the sheet, the stars and the debris
+ * together — that is what makes it read as the CAMERA shaking rather than the
+ * sheet wobbling. Shake only the sheet and it looks like the paper is nervous.
+ *
+ * The rumble shake is deliberately tiny and slow; the impact one is violent and
+ * decays fast. Two different animations rather than one scaled, because a quake
+ * before the hit and a quake at the hit are different physical events.
+ */
+[data-collapse-phase='rumble'] #collapse-viewport,
+[data-collapse-phase='rumble'] #collapse-world {
+  animation: collapse-tremor 220ms linear infinite;
+}
+
+/*
+ * The second rumble, while the city rises. The same tremor as the first, on
+ * the world layer only — by now the DOM sheet is gone and the viewport holds
+ * nothing but settled dust. Slightly slower, because it is the ground moving
+ * under someone standing on it rather than a camera shaking at a distance.
+ */
+[data-collapse-phase='rise'] #collapse-world {
+  animation: collapse-tremor 280ms linear infinite;
+}
+
+@keyframes collapse-tremor {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(-1px, 1px, 0);
+  }
+  50% {
+    transform: translate3d(1px, -1px, 0);
+  }
+  75% {
+    transform: translate3d(-1px, -1px, 0);
+  }
+}
+
+/*
+ * The world layer shakes with the viewport, on the same selector change, so both
+ * animations start in the same style recalculation and stay in lockstep. It has
+ * to: the world is a separate layer now (see `#collapse-world`), and a sky that
+ * holds still while the sheet and debris shake reads as the sheet wobbling in
+ * front of a backdrop — the exact thing the viewport-level shake was designed to
+ * avoid.
+ */
+[data-collapse-phase='quake'] #collapse-viewport,
+[data-collapse-phase='quake'] #collapse-world {
+  /*
+   * Delayed to land on the slam, not on the first tip. The fall spends its
+   * first third barely moving, so a shake that starts with the animation would
+   * be shaking at nothing.
+   */
+  animation: collapse-slam 620ms 760ms cubic-bezier(0.2, 0.9, 0.3, 1) 1 both;
+}
+
+@keyframes collapse-slam {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  8% {
+    transform: translate3d(-9px, 12px, 0) rotate(-0.35deg);
+  }
+  18% {
+    transform: translate3d(8px, -9px, 0) rotate(0.3deg);
+  }
+  30% {
+    transform: translate3d(-6px, 6px, 0) rotate(-0.2deg);
+  }
+  44% {
+    transform: translate3d(4px, -4px, 0) rotate(0.12deg);
+  }
+  60% {
+    transform: translate3d(-2px, 2px, 0);
+  }
+  78% {
+    transform: translate3d(1px, -1px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* ── Dust ───────────────────────────────────────────────────────────────── */
+
+/*
+ * A bloom thrown outward from the ground line at impact. Not particles: a
+ * single scaling, fading radial gradient reads as a dust cloud at this size and
+ * costs one element. The real volumetric version arrives with the particle
+ * system in slice 3.
+ */
+#collapse-dust {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  width: 140vw;
+  height: 46vh;
+  transform: translate(-50%, 0) scale(0.35);
+  z-index: 25;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 50% 50% at 50% 100%,
+    rgba(196, 190, 178, 0.5),
+    rgba(150, 145, 136, 0.22) 45%,
+    transparent 72%
+  );
+}
+
+[data-collapse-phase='quake'] #collapse-dust {
+  animation: collapse-dust 2200ms 740ms cubic-bezier(0.15, 0.8, 0.3, 1) 1 both;
+}
+
+@keyframes collapse-dust {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.35);
+  }
+  12% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -14%) scale(1.5);
+  }
+}
+
+/* ── Page lock ──────────────────────────────────────────────────────────── */
+
+/*
  * Both elements rather than one: html alone leaves iOS Safari able to
- * rubber-band, body alone does nothing in engines where the scroll container
- * is the document element.
+ * rubber-band, body alone does nothing in engines where the scroll container is
+ * the document element.
  *
- * Deliberately NOT `position: fixed` on body, which is the other common
- * recipe — it resets scroll to the top, and the exit has to put the visitor
- * back exactly where they were.
+ * Deliberately NOT `position: fixed` on body, which is the other common recipe
+ * — it resets scroll to the top, and the exit has to put the visitor back
+ * exactly where they were.
  */
 .collapse-active,
 .collapse-active body {
@@ -232,13 +584,14 @@
 }
 
 /*
- * The footer sits outside the stage, so with the stage pinned it rides up
- * under the nav and shows through as a stray line of text over open space.
- *
- * Hidden rather than unmounted because it is not this feature's component to
- * own, and because it has to come straight back on exit with no remount cost.
+ * The LIVE footer sits outside the stage, so with the stage pinned it rides up
+ * under the nav and shows as a stray line of text over open space. Scoped to
+ * the sibling of the viewport, because the poster now renders a footer of its
+ * own — the replica's — which must stay visible. Hidden rather than
+ * unmounted because it is not this feature's component to own, and because it
+ * has to come straight back on exit with no remount cost.
  */
-.collapse-active footer {
+.collapse-active #collapse-viewport ~ footer {
   opacity: 0;
   pointer-events: none;
   transition: opacity 200ms ease;
@@ -247,12 +600,10 @@
 /* ── The warning button ─────────────────────────────────────────────────── */
 
 /*
- * Fixed, top-left, above everything.
- *
  * Mounted at App level, NOT inside StudioNav: the nav has a `backdrop-filter`,
- * and a filter on any ancestor re-anchors `position: fixed` descendants to
- * that ancestor instead of the viewport. Top-left is also the one empty corner
- * — the nav sits centre, the theme cord hangs top-right.
+ * and a filter on any ancestor re-anchors `position: fixed` descendants to that
+ * ancestor instead of the viewport. Top-left is also the one empty corner — the
+ * nav sits centre, the theme cord hangs top-right.
  */
 .collapse-button {
   position: fixed;
@@ -281,9 +632,9 @@
 
   cursor: pointer;
   /*
-   * `transform` is left out of the transition on purpose — the glitch
-   * keyframes below drive it, and transitioning a property an animation is
-   * also writing makes the two fight on every hover.
+   * `transform` is left out of the transition on purpose — the glitch keyframes
+   * below drive it, and transitioning a property an animation is also writing
+   * makes the two fight on every hover.
    */
   transition:
     color 200ms ease,
@@ -304,11 +655,6 @@
   outline-offset: 3px;
 }
 
-/*
- * The border pulse, on a pseudo-element rather than the button's own
- * box-shadow so it can scale past the edge without nudging layout, and so
- * hover's shadow and this can coexist instead of overwriting each other.
- */
 .collapse-button::before {
   content: '';
   position: absolute;
@@ -332,11 +678,9 @@
 }
 
 /*
- * The glitch: long gaps of nothing with a two-frame jolt at the end.
- *
- * Something that twitches every seven seconds reads as unstable and is hard to
- * ignore. Something that twitches continuously becomes wallpaper inside ten
- * seconds and stops being noticed at all.
+ * Long gaps of nothing with a two-frame jolt at the end. Something that twitches
+ * every seven seconds reads as unstable and is hard to ignore; something that
+ * twitches continuously becomes wallpaper inside ten seconds.
  */
 .collapse-button {
   animation: collapse-glitch 7s steps(1, end) infinite;
@@ -366,7 +710,6 @@
   line-height: 1;
 }
 
-/* Gone once the sequence owns the screen. */
 .collapse-active .collapse-button {
   opacity: 0;
   pointer-events: none;
@@ -374,11 +717,9 @@
 }
 
 /*
- * ── Touch devices ──
- *
- * Desktop-only for now: the control scheme is pointer lock and WASD, neither
- * of which exists on a phone. Rather than let someone tap it and land in a
- * world they cannot move through, the button says so and does nothing.
+ * Desktop-only for now: the control scheme is pointer lock and WASD, neither of
+ * which exists on a phone. Rather than let someone tap it and land in a world
+ * they cannot move through, the button says so and does nothing.
  */
 .collapse-button--unavailable {
   color: rgba(255, 180, 168, 0.55);
@@ -392,20 +733,130 @@
   opacity: 0.25;
 }
 
-/* ── Reduced motion ────────────────────────────────────────────────────────
+/* ── Reduced motion ──────────────────────────────────────────────────────
  *
- * Pulse and glitch both go. The button stays exactly as visible and as red as
- * it was — this is a warning, and someone who asked for less motion has not
- * asked to be told less about what a button does.
+ * The shakes, the debris and the glitch all go — those are the parts that cause
+ * trouble. The sheet still recedes and still falls, because without them the
+ * sequence stops making sense, and the button stays exactly as visible and as
+ * red as it was: this is a warning, and someone who asked for less motion has
+ * not asked to be told less about what a button does.
  */
 @media (prefers-reduced-motion: reduce) {
   .collapse-button,
   .collapse-button::before,
+  #collapse-flash,
+  #collapse-debris span,
+  [data-collapse-phase='rumble'] #collapse-viewport,
+  [data-collapse-phase='quake'] #collapse-viewport,
+  [data-collapse-phase='rumble'] #collapse-world,
+  [data-collapse-phase='quake'] #collapse-world,
+  [data-collapse-phase='rise'] #collapse-world,
+  [data-collapse-phase='quake'] #collapse-dust,
   .collapse-active #collapse-viewport::before {
     animation: none;
   }
 
+  #collapse-flash,
+  #collapse-debris {
+    display: none;
+  }
+
   .collapse-active #collapse-viewport::before {
     opacity: 1;
+  }
+
+  [data-collapse-world='ready'] #collapse-viewport::before {
+    animation: none;
+    opacity: 0;
+  }
+
+  #collapse-world canvas {
+    transition: none;
+  }
+}
+/* ── Explore: the walk prompt ───────────────────────────────────────────── */
+
+/*
+ * Above the viewport (z 1) and the world (z 0). A plain full-screen button: the
+ * click that dismisses it is the user gesture pointer lock requires, so this is
+ * not decoration — without it explore cannot start.
+ *
+ * Deliberately quiet. It sits over the first view of the world, and the world is
+ * the thing to look at; the card is small, low in frame and translucent, so the
+ * horizon and the poster running away from you stay readable through it.
+ */
+.collapse-walk-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 0 14vh;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  animation: collapse-prompt-in 700ms 150ms ease both;
+}
+
+.collapse-walk-prompt:focus-visible .collapse-walk-prompt__card {
+  outline: 2px solid rgba(226, 232, 255, 0.8);
+  outline-offset: 4px;
+}
+
+.collapse-walk-prompt__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 22px;
+  border-radius: 12px;
+  background: rgba(6, 8, 16, 0.55);
+  border: 1px solid rgba(226, 232, 255, 0.16);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #e6e9f5;
+}
+
+.collapse-walk-prompt__title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.collapse-walk-prompt__keys {
+  font-size: 12px;
+  color: rgba(214, 220, 240, 0.7);
+  white-space: nowrap;
+}
+
+.collapse-walk-prompt kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  margin: 0 1px;
+  border-radius: 4px;
+  border: 1px solid rgba(226, 232, 255, 0.22);
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+  color: #e6e9f5;
+}
+
+@keyframes collapse-prompt-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapse-walk-prompt {
+    animation: none;
   }
 }

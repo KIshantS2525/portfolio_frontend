@@ -59,6 +59,38 @@ const SWIM = 3.2;
 const TERMINAL = 48; //     fall speed cap, so a long drop can't tunnel
 const EPS = 1e-3;
 
+/**
+ * What the controller builds besides the body.
+ *
+ * Added for Collapse World, which wants this exact body — the per-axis
+ * sliding, the substepping, the step-up — and none of the survival kit hung on
+ * it. A sword and a flashlight bobbing at the bottom of the frame while you
+ * walk through someone's portfolio would be a joke nobody asked for.
+ *
+ * Every option defaults to what /game has always had, and the argument itself
+ * is optional, so Game.tsx's call does not change and cannot change behaviour.
+ * Disabled parts still exist on the returned object as inert stand-ins (an
+ * empty sword group, a torch toggle that reports off) so the type is identical
+ * either way and no caller has to narrow it.
+ */
+export type PlayerOptions = {
+  /** Camera-child sword viewmodel. */
+  sword?: boolean;
+  /** Camera-child flashlight and its PointLight. */
+  torch?: boolean;
+  /** Third-person body. Without it `toggleView` is a no-op that stays first person. */
+  avatar?: boolean;
+  /**
+   * Clamp the feet to [0, bounds] on x and z.
+   *
+   * The island lives in positive coordinates from a corner, so the clamp is a
+   * wall around it. Collapse World is centred on the origin and runs toward −z;
+   * with the clamp on, the player could never take a single step in either of
+   * those directions.
+   */
+  bounded?: boolean;
+};
+
 export type PlayerController = {
   controls: PointerLockControls;
   update: (dt: number) => void;
@@ -335,40 +367,51 @@ export function createPlayerController(
   bounds: number,
   spawn: THREE.Vector3,
   waterY: number,
+  options: PlayerOptions = {},
 ): PlayerController {
+  const withSword = options.sword ?? true;
+  const withTorch = options.torch ?? true;
+  const withAvatar = options.avatar ?? true;
+  const bounded = options.bounded ?? true;
+
   const controls = new PointerLockControls(camera, domElement);
 
-  const swordGroup = buildSword();
-  camera.add(swordGroup);
+  const swordGroup = withSword ? buildSword() : new THREE.Group();
+  if (withSword) camera.add(swordGroup);
 
-  const heldTorch = buildHeldTorch();
-  camera.add(heldTorch.group);
-  camera.add(heldTorch.light);
-  let torchOn = true;
-  const lensOnColor = heldTorch.lensMat.color.clone();
+  const heldTorch = withTorch ? buildHeldTorch() : null;
+  if (heldTorch) {
+    camera.add(heldTorch.group);
+    camera.add(heldTorch.light);
+  }
+  let torchOn = withTorch;
+  const lensOnColor = heldTorch ? heldTorch.lensMat.color.clone() : new THREE.Color();
   /** Toggled by the 'T' key (Game.tsx) — off means dark (no light, dim lens), not "put away". */
   function toggleTorch(): boolean {
+    if (!heldTorch) return false;
     torchOn = !torchOn;
     heldTorch.light.visible = torchOn;
-    avatarTorchProp.lensMat.color.copy(torchOn ? lensOnColor : new THREE.Color(0x2a2620));
+    avatarTorchProp?.lensMat.color.copy(torchOn ? lensOnColor : new THREE.Color(0x2a2620));
     heldTorch.lensMat.color.copy(torchOn ? lensOnColor : new THREE.Color(0x2a2620));
     return torchOn;
   }
 
-  const avatar = buildAvatar();
+  const avatar = withAvatar ? buildAvatar() : null;
   // Third-person's copy of the same torch, sized for the avatar's arm rather
   // than camera-local space — parented to the left arm so it swings with it
   // exactly like the sword conceptually would on the right.
-  const avatarTorchProp = buildTorchProp();
-  const avatarTorch = avatarTorchProp.group;
-  avatarTorch.scale.setScalar(0.85);
-  avatarTorch.position.set(0, -0.58, 0.06);
-  // The prop now points forward (-Z) by default rather than up, since it's
-  // a flashlight rather than a torch with the flame on top — tilted down
-  // from the lowered arm so the beam still reads as pointing out and ahead
-  // rather than straight down at the villager's own feet.
-  avatarTorch.rotation.x = -1.15;
-  avatar.arms[0].add(avatarTorch);
+  const avatarTorchProp = avatar && withTorch ? buildTorchProp() : null;
+  if (avatar && avatarTorchProp) {
+    const avatarTorch = avatarTorchProp.group;
+    avatarTorch.scale.setScalar(0.85);
+    avatarTorch.position.set(0, -0.58, 0.06);
+    // The prop now points forward (-Z) by default rather than up, since it's
+    // a flashlight rather than a torch with the flame on top — tilted down
+    // from the lowered arm so the beam still reads as pointing out and ahead
+    // rather than straight down at the villager's own feet.
+    avatarTorch.rotation.x = -1.15;
+    avatar.arms[0].add(avatarTorch);
+  }
   /*
    * Third-person is a camera offset, not a second camera. PointerLockControls
    * owns the camera's rotation either way; all that changes is where the
@@ -573,13 +616,15 @@ export function createPlayerController(
     }
 
     // Keep the body inside the map even if it somehow escapes the terrain.
-    feet.x = THREE.MathUtils.clamp(feet.x, HALF + 0.01, bounds - HALF - 0.01);
-    feet.z = THREE.MathUtils.clamp(feet.z, HALF + 0.01, bounds - HALF - 0.01);
+    if (bounded) {
+      feet.x = THREE.MathUtils.clamp(feet.x, HALF + 0.01, bounds - HALF - 0.01);
+      feet.z = THREE.MathUtils.clamp(feet.z, HALF + 0.01, bounds - HALF - 0.01);
+    }
     if (feet.y < -8) { feet.set(spawn.x, spawn.y, spawn.z); vel.set(0, 0, 0); }
 
     eyePos.set(feet.x, feet.y + EYE, feet.z);
 
-    if (thirdPerson) {
+    if (thirdPerson && avatar) {
       // Pull back along the full look vector (pitch included), but stop short
       // of any solid block so the camera never ends up inside terrain.
       camera.getWorldDirection(camBack);
@@ -610,9 +655,9 @@ export function createPlayerController(
     } else {
       camera.position.copy(eyePos);
     }
-    avatar.group.visible = thirdPerson;
+    if (avatar) avatar.group.visible = thirdPerson;
     swordGroup.visible = !thirdPerson;
-    heldTorch.group.visible = !thirdPerson;
+    if (heldTorch) heldTorch.group.visible = !thirdPerson;
 
     if (swingT > 0) {
       swingT = Math.max(0, swingT - dt * 5);
@@ -654,8 +699,10 @@ export function createPlayerController(
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);
     camera.remove(swordGroup);
-    camera.remove(heldTorch.group);
-    camera.remove(heldTorch.light);
+    if (heldTorch) {
+      camera.remove(heldTorch.group);
+      camera.remove(heldTorch.light);
+    }
   }
 
   // Settle onto the ground at spawn rather than trusting the caller's Y.
@@ -673,8 +720,13 @@ export function createPlayerController(
     toggleTorch,
     isSwimming: submerged,
     isMoving: () => wish.lengthSq() > 0.01 && grounded,
-    avatar: avatar.group,
-    toggleView: () => { thirdPerson = !thirdPerson; return thirdPerson; },
+    /* An empty group when built without one, so Game.tsx-style `scene.add(avatar)` stays harmless. */
+    avatar: avatar ? avatar.group : new THREE.Group(),
+    toggleView: () => {
+      if (!avatar) return false;
+      thirdPerson = !thirdPerson;
+      return thirdPerson;
+    },
     isThirdPerson: () => thirdPerson,
     dispose,
   };
