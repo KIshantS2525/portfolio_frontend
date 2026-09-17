@@ -3,6 +3,11 @@ import * as THREE from 'three';
 import { createPlayerController, type PlayerController } from '@/components/game/player';
 import { createEnvironment, GROUND_FOG_DENSITY, MOON_DIR } from '@/components/collapse/environment';
 import { createBuildings } from '@/components/collapse/buildings';
+import { createMonument, type Monument } from '@/components/collapse/monument';
+import { createCityScale } from '@/components/collapse/cityScale';
+import { createGraphLandmark, type GraphLandmark } from '@/components/collapse/graphLandmark';
+import { createSkillWalkers, type SkillWalkers } from '@/components/collapse/skillWalkers';
+import { createContactBuildings, type ContactBuildings, type ContactPrompt } from '@/components/collapse/contactBuildings';
 import type { Blueprint } from '@/components/collapse/blueprint';
 import {
   applyPose,
@@ -67,6 +72,18 @@ const SETTLE_MS = 2800;
 /** The reverse, for Escape. Quick for the same reason the DOM return is. */
 const RETURN_MS = 900;
 
+/** The monument's head start over the project blocks, ms. */
+const MONUMENT_HEAD_START_MS = 700;
+
+/** The reveal: up, hold, down. */
+const LIFT_MS = 3400;
+const HOLD_MS = 2000;
+const DESCEND_MS = 3600;
+const REVEAL_PITCH_DEG = 72;
+/** Clearance around the monument when framing it, metres. */
+const REVEAL_MARGIN_M = 30;
+const REVEAL_FOG = 0.0012;
+
 /**
  * How long after pointer lock is released an Escape still counts as "that was
  * the Escape that released it".
@@ -97,8 +114,10 @@ export type CollapseWorld = {
   handoff: () => boolean;
   /** Camera down to eye height. Resolves when it lands, or when cancelled. */
   settle: () => Promise<void>;
-  /** The project buildings rise out of the sheet, in page order. Resolves when the last lands. */
+  /** The monument and the project buildings rise out of the sheet, in page order. */
   rise: () => Promise<void>;
+  /** Camera up to read the name from above, hold, then back down to eye height. */
+  reveal: () => Promise<void>;
   /** Camera back to the swap pose, so the DOM sheet can take over again exactly. */
   returnToHandoff: () => Promise<void>;
   /** Hides the quad. Called right as the DOM sheet is shown again. */
@@ -119,6 +138,10 @@ export type CollapseWorld = {
   lock: () => void;
   /** False while the mouse is locked, or for a moment after it was just released. */
   escapeShouldExit: () => boolean;
+  /** Called when the building the player is standing near changes, or they leave it. */
+  onPrompt: (listener: (prompt: ContactPrompt) => void) => void;
+  /** Runs the nearby building's action — open or copy. Returns a line for the toast. */
+  activateNearby: () => string | null;
   dispose: () => void;
 };
 
@@ -161,6 +184,12 @@ export function createCollapseWorld(
   host.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
+  /*
+   * Everything that is the city — the fallen page and everything standing on it
+   * — hangs off this one group, because it all has to shrink together when the
+   * player walks out into the void. See cityScale.ts.
+   */
+  const city = createCityScale(scene);
   const camera = new THREE.PerspectiveCamera();
   const skyCamera = new THREE.PerspectiveCamera();
   const env = createEnvironment(scene);
@@ -191,7 +220,7 @@ export function createCollapseWorld(
   quad.position.set(0, 0, -(geometry.sheetH * k) / 2);
   quad.visible = false;
   quad.name = 'collapse-poster';
-  scene.add(quad);
+  city.group.add(quad);
 
   /* ── The city ── */
 
@@ -209,14 +238,116 @@ export function createCollapseWorld(
   moonLight.position.copy(MOON_DIR).multiplyScalar(100);
   scene.add(hemi, moonLight);
 
-  const buildings = createBuildings(scene, options.blueprint, k, geometry.sheetW, geometry.sheetH);
+  const buildings = createBuildings(city.group, options.blueprint, k, geometry.sheetW, geometry.sheetH);
+
+  /*
+   * The monument is the page's own <h1> stood up where it is printed, at the
+   * size it is printed. Page order puts it at the far end of the city, so it is
+   * what you walk toward for the whole length of the page.
+   */
+  const heading = options.blueprint.name;
+  const monument: Monument | null = createMonument(city.group, heading, k, {
+    x0: (heading.x - geometry.sheetW / 2) * k,
+    z0: -(geometry.sheetH - heading.y) * k,
+  });
+
+  /*
+   * The knowledge graph, hanging over the patch of page it is printed on. No
+   * collision anywhere: it is the one landmark you walk straight through.
+   */
+  const graphRect = options.blueprint.graph;
+  const graphLandmark: GraphLandmark | null = graphRect
+    ? createGraphLandmark(city.group, {
+        x0: (graphRect.x - geometry.sheetW / 2) * k,
+        x1: (graphRect.x + graphRect.w - geometry.sheetW / 2) * k,
+        z0: -(geometry.sheetH - graphRect.y) * k,
+        z1: -(geometry.sheetH - (graphRect.y + graphRect.h)) * k,
+      })
+    : null;
+
+  /*
+   * The skills, marching the Stack section. No collision: you walk through them.
+   */
+  const stack = options.blueprint.stack;
+  const walkers: SkillWalkers | null = stack
+    ? createSkillWalkers(
+        city.group,
+        stack.skills,
+        {
+          x0: (stack.x - geometry.sheetW / 2) * k,
+          x1: (stack.x + stack.w - geometry.sheetW / 2) * k,
+          z0: -(geometry.sheetH - stack.y) * k,
+          z1: -(geometry.sheetH - (stack.y + stack.h)) * k,
+        },
+        heading.fontFamily,
+      )
+    : null;
+
+  /* The contact links as buildings at the near end — the last thing on the page, the last thing you reach. */
+  const contacts: ContactBuildings | null = createContactBuildings(
+    city.group,
+    options.blueprint.contacts,
+    k,
+    geometry.sheetW,
+    geometry.sheetH,
+  );
 
   /* ── Camera state ── */
+
+  /* Scratch vector for the collision conversion, so the hot path allocates nothing. */
+  const cellProbe = new THREE.Vector3();
 
   const swapPose = handoffPose(geometry);
   const current: Pose = { ...swapPose };
   let tween: Tween | null = null;
   let hasPoster = false;
+  /*
+   * Bumped whenever something takes the camera or the city over. Any sequence
+   * in flight — the rise, the reveal's three legs — checks it after every await
+   * and stands down if it is no longer the current one.
+   */
+  let railGen = 0;
+  let riseTimer = 0;
+  let prompt: ContactPrompt = null;
+  let promptListener: ((prompt: ContactPrompt) => void) | null = null;
+
+  /**
+   * Where the camera goes to read the name.
+   *
+   * Solved from the monument's own footprint and the current lens rather than
+   * written down: the heading's size follows the visitor's viewport, so any
+   * fixed altitude would frame it on one screen and crop it on another. Pitched
+   * steeply but not straight down — at 90° the letters are a flat plan drawing
+   * with no thickness, and the thickness is what says they are built.
+   */
+  function revealPose(): Pose {
+    const b = monument?.bounds ?? { x0: -50, x1: 50, z0: -100, z1: 0 };
+    /* Framed off the monument's real footprint, which is derived from the hero block and the viewport. */
+    const focal = focalForFov(PLAYER_FOV_DEG, vh);
+    const pitch = -THREE.MathUtils.degToRad(REVEAL_PITCH_DEG);
+    const halfH = Math.atan(vw / 2 / focal);
+    const halfV = Math.atan(vh / 2 / focal);
+    const width = b.x1 - b.x0;
+    const depth = b.z1 - b.z0;
+    const dist = Math.max((width / 2 + REVEAL_MARGIN_M) / Math.tan(halfH), (depth / 2 + REVEAL_MARGIN_M) / Math.tan(halfV));
+    return {
+      x: (b.x0 + b.x1) / 2,
+      y: (monument?.height ?? 20) - Math.sin(pitch) * dist,
+      z: (b.z0 + b.z1) / 2 + Math.cos(pitch) * dist,
+      pitch,
+      yaw: 0,
+      focal,
+      cx: 0.5,
+      cy: 0.5,
+      near: 0.5,
+      /*
+       * Thinner fog up here. At ground level the fog is what makes the page run
+       * away into the dark; from 250m it would put a grey sheet over the one
+       * thing the camera climbed to read.
+       */
+      fog: REVEAL_FOG,
+    };
+  }
 
   /* ── Explore state ── */
 
@@ -317,6 +448,28 @@ export function createCollapseWorld(
     );
 
     buildings.update(now);
+    monument?.update(now);
+    contacts?.tick(now);
+    city.update(camera.position);
+    graphLandmark?.update(now, camera.position);
+    walkers?.update(dt, camera.position);
+
+    /*
+     * Proximity prompts, only while the player is actually walking. The camera
+     * flies within metres of these buildings during the settle and the reveal,
+     * and a "press E" prompt during a cutscene would be an offer the player
+     * cannot take.
+     */
+    if (player && locked) {
+      const next = contacts?.update(camera.position) ?? null;
+      if (promptLabel(next) !== promptLabel(prompt)) {
+        prompt = next;
+        promptListener?.(next);
+      }
+    } else if (prompt) {
+      prompt = null;
+      promptListener?.(null);
+    }
     env.update(camera, skyCamera, current.fog, (now - clockStart) / 1000);
 
     renderer.clear();
@@ -404,11 +557,67 @@ export function createCollapseWorld(
 
     rise() {
       if (disposed) return Promise.resolve();
-      return buildings.rise(options.reducedMotion);
+      const gen = ++railGen;
+      /*
+       * The monument breaks ground first and the project blocks follow — page
+       * order, which is what the whole city is arranged by. The head start is
+       * short: long enough to read as "that, then everything else", not long
+       * enough to be two separate events.
+       */
+      /* Up with everything else: they are part of the page standing up, not scenery that was always there. */
+      graphLandmark?.setVisible(true);
+      walkers?.setVisible(true);
+      contacts?.setVisible(true);
+      const monumentDone = monument ? monument.rise(options.reducedMotion) : Promise.resolve();
+      const blocksDone = new Promise<void>((resolve) => {
+        riseTimer = window.setTimeout(() => {
+          riseTimer = 0;
+          if (disposed || gen !== railGen) return resolve();
+          void buildings
+          .rise(options.reducedMotion)
+          /* Contact last: the bottom of the page is the last thing to stand up. */
+          .then(() => contacts?.rise(options.reducedMotion))
+          .then(resolve);
+        }, options.reducedMotion ? 0 : MONUMENT_HEAD_START_MS);
+      });
+      return Promise.all([monumentDone, blocksDone]).then(() => undefined);
+    },
+
+    /**
+     * The reveal: up, hold, back down.
+     *
+     * Three tweens rather than one long one, and the middle one is a tween to
+     * the pose it is already at — a hold that Escape can interrupt exactly like
+     * the other two, instead of a `setTimeout` that would keep running while the
+     * camera flies home underneath it.
+     */
+    async reveal() {
+      if (disposed || !monument || options.reducedMotion) return;
+      const gen = ++railGen;
+      const top = revealPose();
+      await startTween(top, LIFT_MS);
+      if (disposed || gen !== railGen) return;
+      await startTween(top, HOLD_MS);
+      if (disposed || gen !== railGen) return;
+      await startTween(eyePose(vh, GROUND_FOG_DENSITY), DESCEND_MS);
     },
 
     returnToHandoff() {
       if (disposed) return Promise.resolve();
+      /* Stops any rail or rise still in flight from advancing into the exit. */
+      railGen++;
+      /* Back to full size, so the flight home ends on the pose the DOM sheet matches. */
+      city.setEnabled(false);
+      if (riseTimer) {
+        clearTimeout(riseTimer);
+        riseTimer = 0;
+      }
+      void monument?.sink();
+      graphLandmark?.setVisible(false);
+      walkers?.setVisible(false);
+      contacts?.setVisible(false);
+      prompt = null;
+      promptListener?.(null);
       /*
        * The city goes back under the sheet while the camera flies up. It has to
        * be gone before the DOM sheet is shown again: the sheet is flat paper,
@@ -416,6 +625,7 @@ export function createCollapseWorld(
        * The sink is shorter than the flight, so it always finishes first.
        */
       void buildings.sink();
+      void contacts?.sink();
       /*
        * The controller goes first. Left running, it would keep writing the
        * camera underneath the tween — and the current pose is taken from the
@@ -458,13 +668,42 @@ export function createCollapseWorld(
          * are generated on the metre grid for exactly that reason (see
          * buildings.ts), so the walls you hit are the walls you see.
          */
-        (x, y, z) => y < 0 || buildings.solidAt(x, y, z),
+        (x, y, z) => {
+          if (y < 0) return true;
+          /*
+           * Through the city's own scale first. The buildings and the monument
+           * are both grids of whole metres in the city's unscaled space, and
+           * that is the space this has to ask them about — see cityScale.ts for
+           * why there is no second, scaled copy of any of it.
+           *
+           * The cell's CENTRE is converted, not its corner: a cell is a metre
+           * wide, and its corner sits exactly on a boundary that rounding can
+           * fall either side of.
+           */
+          const p = city.toCity(x + 0.5, y + 0.5, z + 0.5, cellProbe);
+          const cx = Math.floor(p.x);
+          const cy = Math.floor(p.y);
+          const cz = Math.floor(p.z);
+          return (
+            buildings.solidAt(cx, cy, cz) ||
+            Boolean(monument?.solidAt(cx, cy, cz)) ||
+            Boolean(contacts?.solidAt(cx, cy, cz))
+          );
+        },
         0,
         new THREE.Vector3(current.x, 0, current.z),
         /* No water in this world. */
         -Infinity,
         { sword: false, torch: false, avatar: false, bounded: false },
       );
+      /*
+       * The shrink runs only while the player is driving. Every cutscene camera
+       * — the swap pose, the reveal — sits hundreds of metres from the city on
+       * purpose, and would otherwise shrink the thing it was sent there to look
+       * at.
+       */
+      city.setEnabled(true);
+
       player.controls.addEventListener('lock', onLock);
       player.controls.addEventListener('unlock', onUnlock);
     },
@@ -483,6 +722,15 @@ export function createCollapseWorld(
       if (result instanceof Promise) result.catch(() => {});
     },
 
+    onPrompt(listener) {
+      promptListener = listener;
+    },
+
+    activateNearby() {
+      if (!player || !locked) return null;
+      return contacts?.activate() ?? null;
+    },
+
     escapeShouldExit() {
       if (locked) return false;
       return performance.now() - unlockedAt > UNLOCK_GRACE_MS;
@@ -498,7 +746,13 @@ export function createCollapseWorld(
       tween = null;
       resolveFirst();
 
+      if (riseTimer) clearTimeout(riseTimer);
       buildings.dispose();
+      monument?.dispose();
+      graphLandmark?.dispose();
+      walkers?.dispose();
+      contacts?.dispose();
+      city.dispose();
       scene.remove(hemi, moonLight);
       env.dispose();
       quad.geometry.dispose();
@@ -534,4 +788,9 @@ function downsample(src: HTMLCanvasElement, max: number): HTMLCanvasElement {
     ctx.drawImage(src, 0, 0, out.width, out.height);
   }
   return out;
+}
+
+/** Identity of a prompt, so the listener only fires when it actually changes. */
+function promptLabel(p: ContactPrompt): string {
+  return p ? `${p.action}:${p.label}` : '';
 }

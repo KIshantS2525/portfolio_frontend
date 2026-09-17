@@ -14,6 +14,8 @@ import {
 } from '@/components/collapse/paperRecede';
 import { measurePoster, paintPoster } from '@/components/collapse/posterTexture';
 import { measureBlueprint, type Blueprint } from '@/components/collapse/blueprint';
+import { createCollapseAudio, type CollapseAudio } from '@/components/collapse/collapseAudio';
+import type { ContactPrompt } from '@/components/collapse/contactBuildings';
 import { preloadMarqueeLogos } from '@/components/core/Marquee';
 import type { CollapseWorld } from '@/components/collapse/collapseWorld';
 import {
@@ -58,6 +60,7 @@ import {
 
 type Run = {
   alive: boolean;
+  audio: CollapseAudio | null;
   exiting: boolean;
   fit: Fit | null;
   handle: Handle | null;
@@ -75,10 +78,26 @@ export function CollapseSequence() {
    * the one thing here that changes what is rendered.
    */
   const [locked, setLocked] = useState(false);
+  /* What the player is standing next to, if anything — see contactBuildings.ts. */
+  const [prompt, setPrompt] = useState<ContactPrompt>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   async function start() {
     if (runRef.current || getCollapsePhase() !== 'idle') return;
-    const run: Run = { alive: true, exiting: false, fit: null, handle: null, world: null, handedOff: false };
+    const run: Run = {
+      alive: true,
+      exiting: false,
+      fit: null,
+      handle: null,
+      world: null,
+      handedOff: false,
+      /*
+       * Built here, inside the click handler, because a browser will not let an
+       * AudioContext start anywhere else. Null if the API is missing, and every
+       * call below is optional — the sequence is silent rather than broken.
+       */
+      audio: createCollapseAudio(),
+    };
     runRef.current = run;
     const reduced = prefersReducedMotion();
 
@@ -169,12 +188,15 @@ export function CollapseSequence() {
     const worldReady = bootWorld(run, chunk, fit, blueprint, posterCanvas, reduced);
 
     /* ── Beat one: the retreat ── */
+    /* Under the recede: quiet, and growing. Nothing has happened yet. */
+    run.audio?.rumble(0.25);
     run.handle = startRecede(fit);
     await run.handle.finished;
     if (!run.alive) return;
 
     /* ── Beat two: silence, then the first rocks ── */
     setCollapsePhase('rumble');
+    run.audio?.rumble(1);
     await wait(RUMBLE_MS);
     if (!run.alive) return;
 
@@ -183,6 +205,8 @@ export function CollapseSequence() {
     run.handle = startFall(fit);
     await run.handle.finished;
     if (!run.alive) return;
+    /* On the frame it lands, with the dust. */
+    run.audio?.slam();
 
     /*
      * ── The handoff ──
@@ -228,23 +252,39 @@ export function CollapseSequence() {
      * world layer, keyed off this phase, exactly as the first quake is.
      */
     setCollapsePhase('rise');
+    /* Roughly as long as the staggered rise takes; it fades itself out. */
+    run.audio?.grind(6);
     await world.rise();
     if (!run.alive) return;
 
     /*
-     * ── Beat six: the player takes over ──
+     * ── Beat six: the reveal ──
+     *
+     * The camera climbs until the whole monument is in frame, holds on the name
+     * the city is built around, and comes back down to eye height at the near
+     * end. Skipped entirely under reduced motion, which is what that setting
+     * asks for: it is a long, steep camera move over a city.
+     */
+    setCollapsePhase('reveal');
+    await world.reveal();
+    if (!run.alive) return;
+
+    /*
+     * ── Beat seven: the player takes over ──
      *
      * Eye height, level, standing off the Contact end of the fallen page and
      * looking up its length at the hero — which is where the monument will
      * stand, so it is seen at a distance first, across the whole city. (Decided
      * with the owner after slice 2.)
      *
-     * The plan has pointer lock arriving at REVEAL → EXPLORE. The reveal — the
-     * camera lifting to read the name — is slice 6, and slots in between the
-     * rise above and this line.
+     * Pointer lock arrives at REVEAL → EXPLORE, exactly where the plan puts it:
+     * never during a cutscene the player cannot act in.
      */
     setCollapsePhase('explore');
+    /* Open ground, and nothing else out there. */
+    run.audio?.wind(true);
     world.explore(setLocked);
+    world.onPrompt(setPrompt);
   }
 
   /**
@@ -316,6 +356,10 @@ export function CollapseSequence() {
 
     setCollapsePhase('exit');
     setLocked(false);
+    setPrompt(null);
+    setToast(null);
+    run.audio?.dispose();
+    run.audio = null;
 
     if (run.world && run.handedOff) {
       /*
@@ -358,6 +402,23 @@ export function CollapseSequence() {
    */
   useEffect(() => registerCollapseStarter(() => void start()), []);
 
+  /*
+   * E activates whatever the player is standing next to. One key, one verb: the
+   * world has walking and this, and nothing else to learn.
+   */
+  useEffect(() => {
+    if (phase !== 'explore') return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'e' && e.key !== 'E') return;
+      const line = runRef.current?.world?.activateNearby();
+      if (!line) return;
+      setToast(line);
+      window.setTimeout(() => setToast((t) => (t === line ? null : t)), 2600);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [phase]);
+
   useEffect(() => {
     if (phase === 'idle') return;
     function onKey(e: KeyboardEvent) {
@@ -383,6 +444,7 @@ export function CollapseSequence() {
       if (!run) return;
       run.alive = false;
       run.handle?.cancel();
+      run.audio?.dispose();
       run.world?.dispose();
       runRef.current = null;
       /* Same order as the exit, for the same reason: phase, then release. */
@@ -401,6 +463,16 @@ export function CollapseSequence() {
   return (
     <>
       <div id="collapse-world" ref={hostRef} aria-hidden="true" />
+      {phase === 'explore' && locked && prompt && (
+        <div className="collapse-hud collapse-hud--prompt" aria-live="polite">
+          <kbd>E</kbd> {prompt.action === 'open' ? 'open' : 'copy'} {prompt.label}
+        </div>
+      )}
+      {toast && (
+        <div className="collapse-hud collapse-hud--toast" aria-live="polite">
+          {toast}
+        </div>
+      )}
       {phase === 'explore' && !locked && (
         /*
          * The whole screen is the button, not just the card. The instruction is
@@ -415,7 +487,7 @@ export function CollapseSequence() {
           type="button"
           className="collapse-walk-prompt"
           onClick={() => runRef.current?.world?.lock()}
-          aria-label="Click to walk. W A S D to move, Shift to sprint, Space to jump, Escape to leave."
+          aria-label="Click to walk. W A S D to move, Shift to sprint, E to use what you are standing near, Escape to leave."
         >
           <span className="collapse-walk-prompt__card">
             <span className="collapse-walk-prompt__title">Click to walk</span>
@@ -423,7 +495,7 @@ export function CollapseSequence() {
               <kbd>W</kbd>
               <kbd>A</kbd>
               <kbd>S</kbd>
-              <kbd>D</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump · <kbd>Esc</kbd> leave
+              <kbd>D</kbd> move · <kbd>Shift</kbd> sprint · <kbd>E</kbd> use · <kbd>Esc</kbd> leave
             </span>
           </span>
         </button>

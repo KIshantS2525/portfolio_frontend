@@ -13,32 +13,28 @@ import type { Blueprint, BlueprintBlock } from '@/components/collapse/blueprint'
  *   · Uniform height, for now.
  *   · The project's name on the face.
  *
- * ── Why every edge is on the metre grid ──
+ * ── Exact card dimensions ──
  *
- * The player controller is game/player.ts, and it is a voxel controller: it
- * asks `isSolid` about INTEGER cells and snaps the body to whole-metre faces
- * on contact. A wall drawn at x = 12.37 but solid from cell 12 would stop you
- * 37cm short of the paint, or let you 63cm into it, depending on the side. So
- * the footprint is snapped to whole metres first, and the mesh is built from
- * the snapped numbers — the box you see and the box you hit are the same box,
- * by construction rather than by care.
+ * The footprint is the card's rect, converted to metres and used as-is: no
+ * snapping, no insets, no minimum sizes. A building is its card at its card's
+ * proportions, and the 24px gaps between cards are 24px of gap in the world
+ * too. An earlier version rounded every edge out to the metre grid and then
+ * gave a metre back at each end to open streets, which made every building a
+ * different shape from the card it came from — the one thing this is not
+ * allowed to be.
  *
- * ── Why the footprint is inset along the row ──
+ * ── Which leaves collision to catch up ──
  *
- * StackCards puts 24px between cards: under a metre in the world, which the
- * grid rounds to either a slot the player cannot fit through or nothing at all.
- * Twenty-nine slabs fused into one 300m wall is not a row of buildings. Each
- * footprint gives up a metre at its front and back, so every pair of neighbours
- * has a street between them you can walk across the row through — and each
- * building still stands inside its own card, which stays visible as a margin
- * of printed page around its base.
+ * The player controller is voxel-based: it asks about INTEGER cells and snaps
+ * the body to whole-metre faces, and nothing can change that. So the mesh is
+ * exact and collision rounds: a metre cell counts as solid when its centre is
+ * inside the card. The wall you hit can sit up to half a metre from the wall
+ * you see, which on a 50m building is a shoulder's width, and is the right end
+ * to lose precision at — the shape you can see is the shape the page has.
  */
 
-/** Height of every building, metres. An integer, for the same grid reason. */
+/** Height of every building, metres. */
 export const BUILDING_HEIGHT_M = 18;
-
-/** Metres given up at the front and back of each footprint, to open the streets. */
-const STREET_INSET_M = 1;
 
 /** Delay between one building starting to rise and the next, in page order. */
 const RISE_STAGGER_MS = 95;
@@ -88,7 +84,8 @@ type Anim = { kind: 'rise' | 'sink'; start: number; from: number[]; resolve: () 
  * @param sheetW       poster width in px; the poster's centre line is at x = 0
  */
 export function createBuildings(
-  scene: THREE.Scene,
+  /** The city group — everything in here scales together when the player walks away (cityScale.ts). */
+  parent: THREE.Object3D,
   blueprint: Blueprint,
   metresPerPx: number,
   sheetW: number,
@@ -96,7 +93,7 @@ export function createBuildings(
 ): Buildings {
   const root = new THREE.Group();
   root.name = 'collapse-buildings';
-  scene.add(root);
+  parent.add(root);
 
   /*
    * Everything a building is made of is clipped at the ground plane.
@@ -140,12 +137,12 @@ export function createBuildings(
     const worldZFar = -(sheetH - block.y) * metresPerPx;
     const worldZNear = -(sheetH - (block.y + block.h)) * metresPerPx;
 
-    /* Snap outward in x (keep the full card width), inward in z (open the streets). */
-    const x0 = Math.floor(worldX0);
-    const x1 = Math.ceil(worldX1);
-    const z0 = Math.ceil(worldZFar) + STREET_INSET_M;
-    const z1 = Math.floor(worldZNear) - STREET_INSET_M;
-    if (x1 - x0 < 2 || z1 - z0 < 2) return null;
+    /* The card, exactly. */
+    const x0 = worldX0;
+    const x1 = worldX1;
+    const z0 = worldZFar;
+    const z1 = worldZNear;
+    if (x1 - x0 < 0.5 || z1 - z0 < 0.5) return null;
 
     const w = x1 - x0;
     const d = z1 - z0;
@@ -402,8 +399,11 @@ export function createBuildings(
 
     solidAt(x, y, z) {
       if (y < 0) return false;
+      /* The cell's centre, because the footprints are no longer on the grid — see the note at the top. */
+      const cx = x + 0.5;
+      const cz = z + 0.5;
       for (const b of buildings) {
-        if (x < b.x0 || x >= b.x1 || z < b.z0 || z >= b.z1) continue;
+        if (cx < b.x0 || cx >= b.x1 || cz < b.z0 || cz >= b.z1) continue;
         /*
          * Collision grows WITH the building, from the same `risen` value as the
          * mesh. A collision box at full height under a building still rising
@@ -420,7 +420,7 @@ export function createBuildings(
     dispose() {
       anim?.resolve();
       anim = null;
-      scene.remove(root);
+      parent.remove(root);
       for (const d of disposables) d.dispose();
     },
   };

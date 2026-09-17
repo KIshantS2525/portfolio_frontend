@@ -860,3 +860,73 @@
     animation: none;
   }
 }
+
+/* ── Explore: prompts and toasts ────────────────────────────────────────── */
+
+/*
+ * The only HUD in the world.
+ *
+ * Bottom of the frame, small, and gone the moment it stops being true — the
+ * prompt appears when you are standing near a contact building and the toast
+ * after you press E. Everything else the visitor needs to know, the world says
+ * by being a place.
+ *
+ * Not interactive: the mouse is locked while these are visible, so a clickable
+ * button here would be a control nobody can reach.
+ */
+.collapse-hud {
+  position: fixed;
+  left: 50%;
+  z-index: 4;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(226, 232, 255, 0.16);
+  background: rgba(6, 8, 16, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #e6e9f5;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: collapse-hud-in 220ms ease both;
+}
+
+.collapse-hud--prompt {
+  bottom: 12vh;
+}
+
+.collapse-hud--toast {
+  bottom: 20vh;
+  border-color: rgba(226, 232, 255, 0.28);
+}
+
+.collapse-hud kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(226, 232, 255, 0.28);
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+}
+
+@keyframes collapse-hud-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapse-hud {
+    animation: none;
+  }
+}

@@ -146,7 +146,10 @@ export function CollapsePoster() {
           </div>
         </section>
 
-        <Stack />
+        {/* `poster-stack` is how blueprint.ts finds the skills: one walker per item. */}
+        <div className="poster-stack">
+          <Stack />
+        </div>
         <About />
         <Contact />
 
