@@ -19,6 +19,8 @@ export function CopyEmail({ className = '' }: { className?: string }) {
     try {
       await navigator.clipboard.writeText(profile.email);
       setCopied(true);
+      // The Contact satellite answers a copy with a signal.
+      window.dispatchEvent(new CustomEvent('contact:signal', { detail: 'send' }));
     } catch {
       window.location.href = `mailto:${profile.email}`;
     }

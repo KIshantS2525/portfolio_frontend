@@ -6,21 +6,22 @@ import SpriteText from 'three-spritetext';
 import { buildGraph, type GraphNode, type NodeKind } from '@/lib/graph';
 import { usePalette, useTheme } from '@/lib/useTheme';
 import { DustCloud } from '@/components/graph/DustCloud';
+import { BlackHoleHeroSection } from '@/components/graph/BlackHole';
+import { OUTER, starFieldShape, type Vec3 } from '@/components/graph/shapes';
 import {
-  OUTER,
-  SHAPE_DEPTH,
-  knightShape,
-  mindShape,
-  scatterShape,
-  sphereShape,
-  starFieldShape,
-  type Vec3,
-} from '@/components/graph/shapes';
+  GALAXY_NORMAL,
+  butterflyFigure,
+  eyeFigure,
+  galaxyFigures,
+  galaxyNodeFigures,
+  orionFigures,
+  vortexFigure,
+  type Figure,
+} from '@/components/graph/cosmos';
 import { useVisible } from '@/components/core/WhenVisible';
 import { GraphReadout } from '@/components/graph/GraphReadout';
-import { AskAI } from '@/components/chat/AskAI';
+import { AskChat } from '@/components/ask/AskChat';
 import { buildMatcher } from '@/components/archive/cite';
-import { BorderGlow } from '@/components/studio/BorderGlow';
 import { Compare } from '@/components/studio/Compare';
 import { SplitFlap } from '@/components/studio/SplitFlap';
 import { prefillAsk } from '@/lib/ask';
@@ -50,7 +51,7 @@ import { useAchievements, useProfile, useRoles } from '@/lib/useContent';
  * Metrics) is already eased over the scroll, so changing this number alone
  * keeps that transition smooth — nothing else needs adjusting for that.
  */
-const ASK_AI_GRAPH_SIZE_PERCENT = 150;
+const ASK_AI_GRAPH_SIZE_PERCENT = 210;
 
 /**
  * How long, in milliseconds, the "cited nodes" highlight takes to fade in
@@ -65,7 +66,7 @@ const CITE_FADE_MS = 900;
  * ============================================================================
  *  TUNE ME — Graph size, laptop vs. monitor
  * ============================================================================
- * The entire scroll sequence (sphere, scatter, mind, knight — every keyframe)
+ * The entire scroll sequence (galaxy, stardust, chart, nebula, black hole — every keyframe)
  * used to render at a fixed number of *pixels* no matter how tall or short
  * the actual browser window was: a 900px-tall laptop window and a 1440px-tall
  * external-monitor window got the identical-size sculpture, because the old
@@ -115,27 +116,14 @@ const SCREEN_SCALE_RANGE: [number, number] = [0.82, 1.3];
  * fully past, so there's nothing to bleed through. The only actor with
  * anything special going on is the graph.
  *
- * Sequence, in order. One keyframe per screenful of scroll, so each shape is
- * fully formed exactly when its own block is centred — see the KEYS comment
- * for why that alignment is deliberate rather than incidental:
- *   heroRight    — assembled sphere, panned right. Hero's copy sits in the
- *                  first block on the left, and nodes are clickable (tap a
- *                  node → primes Ask AI).
- *   heroLeft     — same sphere, panned left, turned partway, as the page
- *                  scrolls Hero's block away and Ask AI's block in.
- *   scatterWide → scatterHold
- *                — one real scatter transition, then a "hold" keyframe where
- *                  the point cloud is identical — the graph reads as a
- *                  constant, fully-populated backdrop while Metrics' and then
- *                  Proof's blocks scroll past beside it, rather than
- *                  something that empties and refills between sections.
- *   sphere       — reassembles, centred. "Everything, connected."
- *   mind         — the folded cortex shell. "One mind behind all of it."
- *   mindTurn     — the same points, half a turn around. "Same mind, different
- *                  lens", meant literally.
- *   knight → knightHold
- *                — resolves into a chess knight as "Ishant Shrivastava"
- *                  appears beside it, then holds for one screen.
+ * Sequence, in order (see KEYS for the exact keyframes, cosmos.ts for the figures):
+ *   Galaxy        Hero        — the knowledge graph as a spiral galaxy, nodes clickable
+ *   Galaxy Dive   Ask         — same galaxy, turned, camera closer, beside the Ask pill
+ *   Stardust      Numbers/Proof — the arms unwind into a quiet cloud behind the copy
+ *   Constellation Connected   — the graph as a star chart; lines draw themselves in
+ *   Eye           One Mind    — a bipolar nebula seen end-on
+ *   Butterfly     Other Lens  — the same nebula a quarter turn round
+ *   Black Hole    Signature   — collapses into a black hole (an eclipse on the light theme)
  *
  * Node count is never touched by any of this — every keyframe is a
  * repositioning of the same fixed set of points, which is what keeps the
@@ -183,410 +171,196 @@ const DEGREE_BONUS: Record<NodeKind, number> = {
 };
 
 /*
- * One keyframe per screenful, and that is load-bearing.
+ * The sequence. One keyframe per screenful of scroll, so each figure is fully
+ * formed exactly when its own heading is centred.
  *
- * The sequence used to run eleven keyframes across ten screens of scroll, so
- * nothing landed anywhere in particular: shapes finished forming partway
- * through whichever block happened to be passing, and the last three
- * transitions played out over two empty screenfuls at the end with no content
- * beside them. Making KEYS.length − 1 equal the number of scrollable screens
- * (eight content blocks plus a one-screen tail, so eight segments) makes segF
- * equal the block index exactly — every shape is fully formed at the moment
- * its own heading is centred, and none of them form anywhere else.
+ *   galaxy     0  Hero        — the knowledge graph as a spiral galaxy, Core at its heart
+ *   core       1  Ask         — the camera falls into the galaxy's heart: the nodes
+ *                               gather into the Globe round the sun / moon, close up
+ *   orionWide  2  Numbers     — an emission nebula opened out, quiet behind the copy
+ *   orionHold  3  Proof       — the same, held
+ *   orion      4  Connected   — the nebula gathers in
+ *   eye        5  One Mind    — the Helix, the Core as its central star
+ *   butterfly  6  Other Lens  — two wings pinched at a white-hot waist
+ *   vortex     7  Signature   — a nebula wound into a whirlpool
+ *   rest       8  Rest        — the whirlpool holds where it is while the
+ *                               ray-traced black hole (BlackHole.tsx) scrolls
+ *                               up over it as its own full-bleed screen
  *
- *   heroRight   0  Hero — assembled sphere, panned right, nodes clickable.
- *   heroLeft    1  Ask AI — same sphere, panned left and turned partway.
- *   scatterWide 2  Metrics — the cloud opens out behind the numbers.
- *   scatterHold 3  Proof — identical cloud, held, so the field reads as a
- *                  constant backdrop rather than emptying and refilling.
- *   sphere      4  "Everything, connected." — reassembles, centred.
- *   mind        5  "One mind behind all of it." — the folded cortex shell.
- *   mindTurn    6  "Same mind, different lens." — the same points, half a
- *                  turn around. The line finally means what it says: it is
- *                  literally the same cloud from the other side.
- *   knight      7  "Ishant Shrivastava" — resolves into the chess piece as
- *                  the name appears.
- *   knightHold  8  One screen of the held knight before Work starts.
+ * Node count never changes. Every keyframe is a repositioning of the same
+ * points, so every transition is a flow rather than a cut.
  */
 const KEYS = [
-  'heroRight',
-  'heroLeft',
-  'scatterWide',
-  'scatterHold',
-  'sphere',
-  'mind',
-  'mindTurn',
-  'knight',
-  'knightHold',
+  'galaxy',
+  'core',
+  'orionWide',
+  'orionHold',
+  'orion',
+  'eye',
+  'butterfly',
+  'vortex',
+  'rest',
 ] as const;
 type Key = (typeof KEYS)[number];
 const SEG_COUNT = KEYS.length - 1;
 
 /**
- * How far each keyframe pans the whole cloud sideways, as a fraction of the
- * visible width. Everything else is 0.
- *
- * This used to be a multiple of OUTER — a flat number of world units — which
- * was fine while the camera lived at one fixed distance inside a fixed-width
- * box, and stopped being fine the moment either of those moved. A world offset
- * is a smaller share of the screen the further back the camera sits, so
- * widening the canvas to the whole viewport quietly shrank the swing from
- * about 13% of the screen to about 10%: the graph went from sweeping across
- * the page to shuffling. Expressed against the visible width instead, the
- * travel is the same proportion of the screen at every distance, and pans the
- * same distance whether or not the dolly happens to be pushing in.
- *
- * On the two hero screens the values below are intentionally past any legal
- * value: they say "push it as far as it will go", and CROP decides where that
- * is. Everywhere else the pan is zero and the dock alone places the cloud.
+ * Sideways push per keyframe, as a fraction of the visible width. On the two
+ * opening screens it is deliberately past any legal value — "as far as it
+ * will go" — and EDGE decides where that is.
  */
 const PAN: Partial<Record<Key, number>> = {
-  heroRight: 0.5,
-  heroLeft: -0.5,
+  galaxy: 0.5,
+  core: -0.5,
 };
 
-/**
- * Where the sphere is parked on the two screens where it is the subject, as
- * the distance from its centre to the near edge of the screen, measured in its
- * own radii. 1.0 would put it exactly touching.
- *
- * Two earlier attempts at this were wrong in two different ways, and both are
- * worth stating because they are easy to walk back into.
- *
- * The first expressed the offset as a fraction of the screen width. That unit
- * is simply wrong for the job: the sphere's projected radius is a fixed number
- * of *pixels*, because the camera is framed off the canvas height, not its
- * width. The same fraction therefore means a different thing on every monitor,
- * and the placement came out cropped or timid depending on where it was looked
- * at.
- *
- * The second fixed the unit and then asked the wrong question of it — how much
- * of the ball is allowed *off* the screen — so the solver pushed the sphere as
- * far as it was legally permitted to go, which is to say hard against the
- * edge, touching it. Technically "fully displayed". Visibly jammed.
- *
- * So the question here is where the sphere sits, not how far it may be shoved.
- *
- * The third pass is about how much air is enough. 1.6 radii leaves about six
- * tenths of a radius outside the ball — roughly 95px on a 1440px screen —
- * which is enough that nothing is cropped and not nearly enough for the shape
- * to read as *placed*. A sphere that close to an edge is a sphere being
- * pushed off the page, and the eye reads the gap rather than the object: it
- * stops looking round and starts looking like it is leaning on something.
- *
- * 2.3 radii on Hero and 2.0 on Ask AI put well over a radius of clear page
- * outside the silhouette, which is the point at which the ball is read as a
- * whole circle sitting in space. It also lands the sphere within a few pixels
- * of where the "One mind" dock parks it seven screens later, so the opening
- * and the payoff are framed identically rather than nearly-identically.
- *
- * It holds at any window size, because the radius it is measured in is the
- * same physical radius the visitor sees.
- */
+/** How close to the screen edge the figure may sit on the opening screens, in OUTER radii. */
 const EDGE: Partial<Record<Key, number>> = {
-  heroRight: 2.3,
-  /*
-   * Ask AI sits closer than anything else in the sequence, and the unit this
-   * is measured in scales with it: 2.0 radii of a 590px sphere is most of the
-   * page, which would shove the sphere back toward the middle and undo the
-   * push-in. 1.35 keeps a third of a radius of clear page outside it and
-   * still lands the near edge some 400px clear of the card's left margin.
-   */
-  heroLeft: 1.35,
+  galaxy: 2.0,
+  // Close in on the galaxy's heart, parked left of the Ask pill.
+  core: 0.5,
 };
 
-/**
- * Where the cloud is parked on each of the nine screens, as a fraction of the
- * visible width either side of centre. One entry per keyframe, and the rule
- * behind them is a single sentence: **the graph sits opposite the words.**
- * Copy on the left puts it on the right, copy on the right puts it on the
- * left, full-width copy puts it dead centre and dims it.
- *
- * These used to be CSS: a 46vw box with `overflow-hidden`, slid left and right
- * with translateX. That works perfectly for the graph and is a disaster for
- * everything around it, because a canvas is only as big as its element and the
- * dust stops dead at the edge of the box. On the dark theme nobody noticed —
- * black particles thinning into black. On paper it is a rectangle of stars
- * sitting on the page with four hard corners, which is exactly what it looks
- * like: a div. So the canvas is the whole viewport now and the docking happens
- * in world space instead, as an offset added to every point right alongside
- * PAN.
- *
- * The number went from 0.229 to 0.30 for one reason: at 0.229 the cloud and
- * the heading were sharing the middle third of the page. "One mind behind all
- * of it." is set at 113px in a 560px column, and a shell parked 22.9% off
- * centre had its near edge inside the heading's own measure — legally beside
- * the text and optically on top of it. 0.30 clears the column entirely on
- * every side dock while still leaving the whole shape a comfortable distance
- * inside the frame.
- */
+/** Where the figure is docked on each screen: opposite the words. */
 const DOCK_POS: number[] = [
-  +0.3, // 0 Hero          — name left, graph right
-  -0.3, // 1 Ask AI        — card right, graph left
-  0, //    2 Metrics       — numbers full width, graph centred behind
-  0, //    3 Proof         — compares full width, graph centred behind
-  -0.3, // 4 Everything    — heading right, graph left
-  +0.3, // 5 One mind      — heading left, graph right
-  -0.3, // 6 Same mind     — heading right, graph left
-  +0.3, // 7 Ishant        — heading left, graph right, mirroring Hero
-  0, //    8 tail          — the knight leaves its dock and comes to rest
+  +0.3, // 0 Hero
+  -0.3, // 1 Ask
+  0, //    2 Numbers
+  0, //    3 Proof
+  -0.25, // 4 Connected  — heading right
+  +0.26, // 5 One Mind   — heading left
+  -0.3, // 6 Other Lens  — heading right
+  +0.24, // 7 Signature  — heading left
+  +0.24, // 8 Rest       — held: the black hole screen covers it
 ];
 
-/**
- * The fraction of each screen at either end during which the dock does *not*
- * move. Everything in between is the crossing.
- *
- * This replaces an exponential ease toward a target that was picked by
- * `Math.round(-rect.top / innerHeight)`, and the difference matters more than
- * it sounds. That version had two independent clocks: the dock target flipped
- * on a scroll threshold, and the cloud then took its own ~700ms to walk there
- * on a timer nothing else in the sequence was attached to. Scroll faster than
- * the ease and the cloud is a screen behind the copy — arriving on the right
- * while the heading that wanted it on the right has already gone, then turning
- * round and chasing the next one. That is the "it jumps back and forth two or
- * three times" complaint, and it is not a tuning problem; a time-based
- * animation inside a scrub cannot be fixed by tuning, because the visitor
- * controls one clock and not the other.
- *
- * So the dock is now a pure function of scroll position, like every other
- * quantity in this loop. It holds still for the first and last 30% of each
- * screen and crosses during the middle 40% — which is exactly the window in
- * which the outgoing heading is leaving the top of the frame and the incoming
- * one has not yet arrived at the centre. The cloud is therefore always already
- * on the correct side by the time there is anything to be beside, it moves
- * once per screen and never twice, and scrubbing backwards runs it backwards
- * instead of sending it on another lap.
- */
+/** Fraction of each screen at either end during which the dock holds still. */
 const DOCK_HOLD = 0.3;
 
-/**
- * Roll about the view axis, in radians, per keyframe. Interpolated between
- * keyframes exactly like PAN.
- *
- * This exists for one moment: the knight should not simply appear upright and
- * finished. It leans out of the orbit it was part of, and straightens as it
- * resolves. So the cloud picks up a tilt across the half-turn on segment 5 —
- * "Same mind, different lens" now rolls as well as turns, which reads as the
- * shape being handled rather than played back — and then segment 6 eases that
- * tilt back to zero over the same span in which the points migrate into the
- * chess piece. The result is that the knight is visibly assembling at an angle
- * and comes to rest vertical, arriving on its feet at the exact frame the
- * shape completes.
- *
- * Roll rather than pitch: a tilt about the depth axis is the one you can
- * actually see resolve on a mostly-flat point cloud. Pitching it away from
- * camera would foreshorten the silhouette instead, which is the one thing the
- * shape cannot afford to lose.
- */
+/** Roll about the view axis. The Butterfly on its diagonal; the vortex rolled to match the black hole. */
 const TILT: Partial<Record<Key, number>> = {
-  mindTurn: 0.5, // ~29°, leaning
-  knight: 0, // upright
-  knightHold: 0,
+  butterfly: 0.95,
+  vortex: -0.35,
+  rest: -0.35,
 };
 
 /**
- * Camera distance per keyframe, as a multiple of the framing solved for the
- * widest shape. Everything else is 1.
- *
- * The camera has to be pulled back far enough to hold the scatter, which is
- * six times the diameter of anything else in the sequence — so the knight,
- * framed for its neighbour, sat at about half the height of its own column.
- * A shape that is the payoff of eight screens of scroll should not be the
- * smallest thing on screen. The push-in runs across the same segment the
- * points migrate into the piece, so it reads as the camera closing on
- * something rather than as a zoom control being nudged, and it carries on a
- * little further through the hold.
- *
- * It does not go as close as it can, though. The piece carries a halo standing
- * up to 30mm clear of its own surface, and framing the *knight* to the slot
- * crops the halo — the ears and the foot of the pedestal run off the top and
- * bottom edges and the object stops looking like it is sitting in space and
- * starts looking like it is jammed into a box. These numbers frame the halo
- * instead, which leaves the piece itself at about two thirds of the frame with
- * air above and below it.
+ * Camera distance per keyframe, as a multiple of the base framing.
+ * `core` is derived from ASK_AI_GRAPH_SIZE_PERCENT at the top of the file.
  */
 const ZOOM: Partial<Record<Key, number>> = {
-  // Ask AI. A small push-in — about a tenth closer, not a third. The first
-  // attempt took the camera to 0.62 and put a 520px sphere two thirds on
-  // screen, which stops reading as "the graph has come closer" and starts
-  // reading as "something has gone wrong with the zoom". The move only needs
-  // to be felt, not announced: enough that the sphere has more presence beside
-  // the card than it has anywhere else in the sequence, and enough crop at the
-  // edge that it reads as continuing past the frame rather than sitting in it.
-  /*
-   * Ask AI. This was 0.9, and 0.9 was never what the visitor was actually
-   * seeing: the pan-before-rotation fault above was pushing the sphere
-   * another ~780 units at the camera on this exact keyframe, so the real
-   * framing was somewhere near 0.35 and the moon was the biggest thing on the
-   * page. That was an accident, but it was a *good* accident — a resolved,
-   * textured body with a surface on it deserves one screen at a size where
-   * the surface can be seen, and the whole point of drawing maria and
-   * granulation is lost at forty pixels.
-   *
-   * So the accident is now the intent, at a value that was chosen rather than
-   * fallen into. 0.55 puts the sphere at roughly 590px across — around 60% of
-   * the viewport height, a clear step closer than Hero's 320px without
-   * tipping into "something has gone wrong with the zoom" — and the moon at
-   * its centre at about 68px, which is comfortably a disc rather than a dot.
-   * The dock does the placing, so unlike before it comes closer *and* stays
-   * hard left of the card instead of drifting back to the middle.
-   */
-  // Derived from ASK_AI_GRAPH_SIZE_PERCENT at the top of the file — that's
-  // the number to change, not this one. 0.55 was the original 100% baseline;
-  // a smaller value here means a closer camera, which is a bigger sphere.
-  heroLeft: 0.55 * (100 / ASK_AI_GRAPH_SIZE_PERCENT),
-  /*
-   * The knight, with air around it.
-   *
-   * These were 0.86 / 0.78, framing a cloud that stands 837 units tall
-   * against a viewport holding 1,190 — about 70%, which is tight but correct
-   * on paper. It was not what shipped: the same rotation fault was magnifying
-   * the piece 2.5× on the one keyframe with the largest dock and the most
-   * unfortunate angle, so it ran off the top and bottom of the screen. With
-   * the transform fixed the old numbers would work; they are opened up
-   * anyway, because a shape that has just been cropped by a bug should come
-   * back with visible margin rather than with a hairline of it.
-   */
-  knight: 0.92,
-  knightHold: 0.84,
+  core: 0.55 * (100 / ASK_AI_GRAPH_SIZE_PERCENT),
+  orion: 0.95,
+  eye: 0.95,
+  butterfly: 1.0,
+  vortex: 0.95,
+  rest: 0.95,
+};
+
+/** Depth cue per keyframe: `half` is the figure's reach along the view axis, `back` the far-side alpha. */
+const DEPTH: Record<Key, { half: number; back: number }> = {
+  galaxy: { half: OUTER * 1.3, back: 0.55 },
+  core: { half: OUTER, back: 0.62 },
+  orionWide: { half: OUTER * 2.0, back: 0.75 },
+  orionHold: { half: OUTER * 2.0, back: 0.75 },
+  orion: { half: OUTER * 0.9, back: 0.6 },
+  eye: { half: OUTER * 0.6, back: 0.7 },
+  butterfly: { half: OUTER * 0.8, back: 0.6 },
+  vortex: { half: OUTER * 1.2, back: 0.55 },
+  rest: { half: OUTER * 1.2, back: 0.55 },
 };
 
 /**
- * Which entry in SHAPE_DEPTH each keyframe uses for its depth cue. Both the
- * range and the strength are interpolated between keyframes exactly like PAN
- * and TILT, so the piece gains its volume on the way in rather than switching
- * it on at the last frame.
+ * How strongly the dust shows. The galaxy is real from the first frame. In
+ * the Globe the camera is inside the galaxy's heart, so the dust is thinned
+ * right back and the Core and its sphere of topics carry the screen; behind
+ * the numbers it is a quiet cloud; at Rest it drains to nothing as the
+ * black hole fades in.
  */
-const DEPTH_OF: Record<Key, keyof typeof SHAPE_DEPTH> = {
-  heroRight: 'sphere',
-  heroLeft: 'sphere',
-  scatterWide: 'scatter',
-  scatterHold: 'scatter',
-  sphere: 'sphere',
-  mind: 'mind',
-  mindTurn: 'mind',
-  knight: 'knight',
-  knightHold: 'knight',
+const DUST_A: Record<Key, number> = {
+  galaxy: 0.8,
+  core: 0.24,
+  orionWide: 0.7,
+  orionHold: 0.7,
+  orion: 1,
+  eye: 1,
+  butterfly: 1,
+  vortex: 1,
+  rest: 1,
+};
+
+/** 1 = nodes are a readable graph (own sizes and colours, clickable); 0 = they dissolve into the figure. */
+const NODE_G: Record<Key, number> = {
+  galaxy: 1,
+  core: 1,
+  orionWide: 0,
+  orionHold: 0,
+  orion: 0,
+  eye: 0,
+  butterfly: 0,
+  vortex: 0,
+  rest: 0,
+};
+const INTERACTIVE_AT = 0.75;
+
+/** The Core (sun / moon). In the Eye it is the dying star at the centre; it is swallowed at the end. */
+const CORE_A: Record<Key, number> = {
+  galaxy: 1,
+  core: 1,
+  orionWide: 1,
+  orionHold: 1,
+  orion: 1,
+  eye: 1,
+  butterfly: 0.7,
+  vortex: 0.6,
+  rest: 0.6,
 };
 
 /**
- * Cumulative yaw added per segment (radians). Index i = the segment from
- * KEYS[i] to KEYS[i+1].
- *
- * The two turns are doing real work. The half-turn on segment 5 is what makes
- * "Same mind, different lens" true rather than decorative — mind and
- * mindTurn are the identical point cloud, and the only thing that changes is
- * which side of it you are standing on. That only survives contact with a
- * viewer if the shape is roughly as wide as it is deep, which the old two-lobe
- * brain was emphatically not: turning it swung its silhouette by a third and
- * the half-turn read as the thing inflating. See mindShape.
- *
- * Segment 6 lands a touch *short* of 2π and segment 7 carries it 0.77 past —
- * so the piece finishes forming just before dead profile, swings through it,
- * and comes to rest at about 35° of three-quarter. Both ends of that are
- * chosen rather than convenient.
- *
- * Dead profile is where a knight is most recognisable and least believable: it
- * is the view every chess set is photographed from, and it is also the one
- * view in which a carved piece is indistinguishable from a flat cut-out
- * however solid the geometry underneath actually is. So it is passed through
- * rather than parked at — the shape resolves at the moment it is easiest to
- * read, and then turns, and the turning is what tells you it was never flat.
- *
- * Past about 45° it stops being worth it: the muzzle foreshortens into the
- * cheek, the mane swings across the neck, and the silhouette that did all the
- * work goes with them. 35° is the far end of the useful range, which is where
- * it stops.
- *
- * All of that happens over the same screen in which the piece slides out of
- * its side dock and settles in the middle of the frame. Turning and travelling
- * together is the point: it arrives centred, still, and having shown you every
- * side of itself on the way.
+ * Node size relative to its graph size. Close up inside the galaxy the nodes
+ * would otherwise read as big blobs; they are brought down to sit in the arms.
  */
+const NODE_S: Record<Key, number> = {
+  galaxy: 1,
+  core: 0.62,
+  orionWide: 1,
+  orionHold: 1,
+  orion: 1,
+  eye: 1,
+  butterfly: 1,
+  vortex: 1,
+  rest: 1,
+};
+
+/** Size of the Core relative to its graph size: large where it is the subject — the heart of the Globe. */
+const CORE_S: Record<Key, number> = {
+  galaxy: 1.3,
+  core: 2.6,
+  orionWide: 1,
+  orionHold: 1,
+  orion: 1,
+  eye: 0.8,
+  butterfly: 0.7,
+  vortex: 0.7,
+  rest: 0.7,
+};
+
+/** No yaw: every figure is authored facing the camera. */
 const YAW_DELTA: number[] = new Array(SEG_COUNT).fill(0);
-YAW_DELTA[0] = Math.PI * 0.4; // heroRight → heroLeft: "rotates a bit" while it moves
-/*
- * ...and straight back again as it opens out.
- *
- * This is not decoration, it is the fix for a rectangle. The scatter is a slab
- * sized to overrun the frame — much wider than it is deep, because the depth
- * is bounded by how close a particle may come to the lens. Carrying 72° of
- * accumulated yaw into it turns that slab most of the way onto its edge, so
- * what the visitor sees is the *narrow* face: a bright band about half a
- * screen wide with two hard vertical borders, floating over Metrics and Proof.
- * Unwinding the turn as the cloud opens means the slab is presented square to
- * the camera at the exact moment it is at its widest, which is when it stops
- * being a shape at all and becomes a field. The turn itself is not lost —
- * it happens on the way in and is spent on the way out, which reads as the
- * cloud settling rather than as anything being corrected.
- */
-YAW_DELTA[1] = -Math.PI * 0.4;
-YAW_DELTA[5] = Math.PI; // mind → mindTurn: the other side of the same mind
-/*
- * mindTurn → knight, and this number carries a correction in it.
- *
- * The total yaw at the knight keyframe is what decides which side of the
- * horse the visitor is looking at, and it is a *sum* — so adding the −0.4π
- * unwind on segment 1 to keep the scatter square to the camera silently took
- * 72° off the ending as well. The piece landed at about −80° instead of −9°:
- * muzzle pointing almost directly away from the lens, which is the one view
- * of a knight that is neither the recognisable profile nor the three-quarter,
- * and is just the back of a horse's head.
- *
- * So this segment carries the unwind back. π + 0.10 puts the knight at 2π +
- * 0.10 — square on to the camera in profile, a fraction past dead-on rather
- * than a fraction short of it, so the near cheek is already catching the
- * light as the shape resolves rather than the far one.
- */
-YAW_DELTA[6] = Math.PI + 0.1;
-/*
- * knight → knightHold: on through profile into three-quarter as it centres.
- *
- * 0.75 lands the piece at about 49° off profile. The old 0.77 was measured
- * from a start point 0.25 rad further back and finished at 35°; this is the
- * same move, ending a little more turned toward the camera, because the
- * complaint the whole of this segment exists to answer is "I want to see the
- * front and the side". The sequence now gives both, in that order: it forms
- * in profile, which is the view a knight is most legible from, and then turns
- * far enough that the muzzle, the near eye and the front of the chest are all
- * facing the reader when it comes to rest. Much past 50° and the muzzle
- * foreshortens into the cheek and the silhouette that did all the work goes
- * with it, so this is the far end of the useful range.
- */
-YAW_DELTA[7] = 0.75;
 
-/*
- * Per-shape captions used to be rendered by <GraphJourney> itself, as a
- * floating <p> centred over the sticky graph column. They're now real
- * headings in real content blocks in the .shell layout above, so this table
- * lives here only for reference — the same strings, in the same shape order.
+/**
+ * Segments that interpolate along an arc about an axis instead of a straight
+ * line, so a turning figure keeps turning instead of cutting across its own
+ * middle. `turns` adds whole extra revolutions (whole, so the end is exact).
  */
-// const CAPTIONS: Partial<Record<Key, string>> = {
-//   sphere: 'Everything, connected.',
-//   mind: 'One mind behind all of it.',
-//   alt: 'Same mind, different lens.',
-//   icon: 'Ishant Shrivastava',
-// };
+const SWIRL: Partial<Record<number, { axis: Vec3; turns: number }>> = {
+  0: { axis: GALAXY_NORMAL, turns: 0 },
+};
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const easeInOut = (t: number) => t * t * (3 - 2 * t);
 /** Fast start, slow finish — used for the citation highlight's fade-in. */
 const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
-
-/**
- * Every shape function returns positions in node-index order. But one node
- * *always* belongs at the origin — the person node (Ishant) — regardless of
- * shape, because that's the "queen bee" the rest of the graph orbits.
- * Rather than special-casing it inside every generator, we post-process:
- * find the person node's index and force its position to [0,0,0] here.
- */
-function centerPerson(nodes: PNode[], positions: Vec3[]): Vec3[] {
-  const i = nodes.findIndex((n) => n.kind === 'person');
-  if (i < 0) return positions;
-  const out = positions.slice();
-  out[i] = [0, 0, 0];
-  return out;
-}
 
 /**
  * A star, as an alpha profile.
@@ -899,7 +673,7 @@ type Node3D = PNode & {
  * this: a mote drifting behind a paragraph and a mote holding up a chess piece
  * want opposite things from a light background, and one array cannot be both.
  */
-const DUST_COUNT = 28000;
+const DUST_COUNT = 34000;
 
 /**
  * How many of those hang back as a starfield rather than belonging to the
@@ -923,8 +697,6 @@ const DUST_COUNT = 28000;
  */
 const FIELD_COUNT = 8800;
 
-const SCULPT_FROM = 1.25;
-const SCULPT_TO = 2.0;
 
 /**
  * Sprite scales that land a real node at exactly the on-screen size of the
@@ -1142,79 +914,84 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
   /** True when the lit set came from an answer, which scales them differently. */
   const citing = !activeId && cited.size > 0;
 
-  /** Every keyframe's point cloud, indexed by node position — computed once per node set. */
-  const shapes = useMemo<Record<Key, Vec3[]>>(() => {
-    // Every shape passes through centerPerson so the queen-bee node sits at
-    // the origin in every keyframe — sphere, scatter, brain, knight, all of
-    // it. In the knight the origin lands in the upper base, just below the
-    // plinth the carved head sits on.
-    const cp = (positions: Vec3[]) => centerPerson(nodes, positions);
-    // Shared references, not copies: a held keyframe must be the *same*
-    // numbers as the one before it, or the interpolator spends a screenful
-    // easing between two indistinguishable clouds and the field shimmers.
-    const ball = cp(sphereShape(nodes.length));
-    const wide = cp(scatterShape(nodes.length, 3.0, 44));
-    const mind = cp(mindShape(nodes.length));
-    const piece = cp(knightShape(nodes.length));
-    return {
-      heroRight: ball,
-      heroLeft: ball,
-      scatterWide: wide,
-      scatterHold: wide,
-      sphere: ball,
-      mind,
-      mindTurn: mind,
-      knight: piece,
-      knightHold: piece,
+  /**
+   * The graph's own nodes, in every figure. Same index space as `nodes`.
+   *
+   * In the Galaxy they are placed by importance — Core at the centre, roles
+   * at the bulge, projects along the arms, tools further out — so the
+   * brightest stars of the galaxy are the things you can click. On the Ask
+   * screen they gather into the Globe round the Core. After that they
+   * dissolve into each nebula.
+   */
+  const light = theme === 'light';
+  const figures = useMemo<Record<Key, Figure>>(() => {
+    const n = nodes.length;
+    const rank: Record<NodeKind, number> = {
+      person: 0,
+      role: 1,
+      project: 2,
+      achievement: 3,
+      domain: 4,
+      tech: 5,
     };
-  }, [nodes]);
+    const order = nodes
+      .map((node, i) => ({ i, r: rank[node.kind] }))
+      .sort((a, b) => a.r - b.r || a.i - b.i)
+      .map((o) => o.i);
+    const gal = galaxyNodeFigures(order, light);
+    const or = orionFigures(n, light, 0x1d0e);
+    const eye = eyeFigure(n, light, 0x2e7e);
+    const fly = butterflyFigure(n, light, 0x3b7f);
+    const vor = vortexFigure(n, light, 0, 0x4e0e);
+
+    const all = [gal.galaxy, gal.dive, or.spread, or.gathered, eye, fly, vor];
+    // The Core sits at the origin of every figure.
+    const core = nodes.findIndex((node) => node.kind === 'person');
+    if (core >= 0) for (const f of all) f.pos.fill(0, core * 3, core * 3 + 3);
+
+    // Shared references for held keyframes: identical numbers, so a hold is a hold.
+    return {
+      galaxy: gal.galaxy,
+      core: gal.dive,
+      orionWide: or.spread,
+      orionHold: or.spread,
+      orion: or.gathered,
+      eye,
+      butterfly: fly,
+      vortex: vor,
+      rest: vor,
+    };
+  }, [nodes, light]);
 
   /**
-   * The same nine keyframes for the dust, at its own far higher count. It is a
-   * separate index space from the graph's, which is the point: the shapes are
-   * generated from a count rather than from a node list precisely so that a
-   * hundred real nodes and seven thousand motes can each be spread properly
-   * over the whole of every shape, instead of the smaller set being handed one
-   * contiguous slice of it.
+   * The dust, in every figure — a separate, far larger index space. The last
+   * FIELD_COUNT particles are the Sky, which is not a figure: it is written
+   * where it was authored and never moves, so the figures move in front of it.
    */
-  const dustShapes = useMemo<Record<Key, Float32Array>>(() => {
-    // The last slice of every keyframe is the same starfield, so those
-    // particles never move: while the shape in front of them scatters,
-    // reassembles and turns, the sky behind it holds still. That is most of
-    // what sells them as distant rather than as more of the same cloud.
-    const sky = starFieldShape(FIELD_COUNT, 907);
-    const shaped = DUST_COUNT - FIELD_COUNT;
-    const flatten = (points: Vec3[]) => {
-      const out = new Float32Array(DUST_COUNT * 3);
-      for (let i = 0; i < shaped; i++) {
-        out[i * 3] = points[i][0];
-        out[i * 3 + 1] = points[i][1];
-        out[i * 3 + 2] = points[i][2];
-      }
-      for (let i = 0; i < FIELD_COUNT; i++) {
-        const j = (shaped + i) * 3;
-        out[j] = sky[i][0];
-        out[j + 1] = sky[i][1];
-        out[j + 2] = sky[i][2];
-      }
-      return out;
-    };
-    const ball = flatten(sphereShape(shaped));
-    const wide = flatten(scatterShape(shaped, 3.0, 71));
-    const mind = flatten(mindShape(shaped));
-    const piece = flatten(knightShape(shaped));
+  const shaped = DUST_COUNT - FIELD_COUNT;
+  const dustFigures = useMemo<Record<Key, Figure>>(() => {
+    const gal = galaxyFigures(shaped, light);
+    const or = orionFigures(shaped, light);
+    const eye = eyeFigure(shaped, light);
+    const fly = butterflyFigure(shaped, light);
+    const vor = vortexFigure(shaped, light, 0);
     return {
-      heroRight: ball,
-      heroLeft: ball,
-      scatterWide: wide,
-      scatterHold: wide,
-      sphere: ball,
-      mind,
-      mindTurn: mind,
-      knight: piece,
-      knightHold: piece,
+      galaxy: gal.galaxy,
+      // Close in on the galaxy's heart: the same stars, turned a little as we fall in.
+      core: gal.dive,
+      orionWide: or.spread,
+      orionHold: or.spread,
+      orion: or.gathered,
+      eye,
+      butterfly: fly,
+      vortex: vor,
+      rest: vor,
     };
-  }, []);
+  }, [shaped, light]);
+  const sky = useMemo(() => starFieldShape(FIELD_COUNT, 907), []);
+
+  /** Whether the black hole is mounted. It is expensive, so it exists only near the Rest screen. */
+  const [holeOn, setHoleOn] = useState(false);
 
   const profile = useProfile();
   const [first, ...rest] = profile.name.split(' ');
@@ -1270,6 +1047,8 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     const cloud = new DustCloud(DUST_COUNT, colors.dust, map, theme !== 'light');
     for (const points of cloud.objects) scene.add(points);
     dust.current = cloud;
+
+
     return () => {
       for (const points of cloud.objects) scene.remove(points);
       cloud.dispose();
@@ -1289,12 +1068,22 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         // Additive on the dark theme, so overlapping cores sum toward white
         // the way real starlight does and a cluster reads as a cluster. On
         // paper there is nothing to add light to, so it stays a normal blend.
-        blending: theme === 'light' ? THREE.NormalBlending : THREE.AdditiveBlending,
+        // The Core is the exception: additive would wash its surface out to
+        // a white disc over the bright bulge, and the moon's maria and the
+        // sun's spots are the whole point of drawing it. Normal blend, and
+        // drawn last, over the dust.
+        blending:
+          theme === 'light' || raw.kind === 'person'
+            ? THREE.NormalBlending
+            : THREE.AdditiveBlending,
+        depthTest: raw.kind !== 'person',
       }),
     );
+    if (raw.kind === 'person') dot.renderOrder = 10;
     const diameter = raw.dot * 3;
     dot.scale.set(diameter, diameter, 1);
     dot.userData.phase = raw.dot * 1.7;
+    dot.userData.kindColor = new THREE.Color(raw.color);
     group.add(dot);
     dots.current.set(raw.id, dot);
 
@@ -1367,12 +1156,15 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     );
   }, [size.w, size.h]);
 
-  /** The scroll-to-shape mapping. Progress is measured across the whole outer section. */
+  /** The scroll-to-figure mapping. Progress is measured across the whole outer section. */
   useEffect(() => {
     if (!visible) return;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const tmpColor = new THREE.Color();
+    const out: [number, number, number] = [0, 0, 0];
 
     let raf = 0;
+    let holeMounted = false;
     const tick = () => {
       const el = outerRef.current;
       if (el) {
@@ -1385,13 +1177,10 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         const localT = easeInOut(clamp01(segF - segIdx));
         const fromKey = KEYS[segIdx];
         const toKey = KEYS[segIdx + 1];
-        const from = shapes[fromKey];
-        const to = shapes[toKey];
+        const lerpK = (table: Record<Key, number>) =>
+          table[fromKey] + (table[toKey] - table[fromKey]) * localT;
 
-        // The dolly is resolved first, because everything horizontal below is
-        // measured against the visible width and the visible width depends on
-        // where the camera is. Only written when it actually moves, so a
-        // segment with no zoom change costs nothing.
+        // Dolly first: everything horizontal is measured against the visible width.
         const zoomFrom = ZOOM[fromKey] ?? 1;
         const zoomTo = ZOOM[toKey] ?? 1;
         const wanted = fit.current * (zoomFrom + (zoomTo - zoomFrom) * localT);
@@ -1403,152 +1192,130 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
             0,
           );
         }
-        // World units across the frame at that distance. 0.9326 is 2·tan(25°),
-        // the renderer's default 50° vertical field of view.
         const visibleWidth = 0.9326 * camDist.current * (size.w / Math.max(1, size.h));
 
-        // Keyframe pan plus the dock offset, both fractions of that width and
-        // both the same kind of thing — a sideways shift of the whole cloud —
-        // so they are added and the rest of the loop never has to know there
-        // were two of them.
+        // Pan + dock, both fractions of the visible width.
         const panFrom = PAN[fromKey] ?? 0;
         const panTo = PAN[toKey] ?? 0;
-        // The dock, read straight off the scroll position rather than eased
-        // toward a target on its own timer — see DOCK_HOLD for why that
-        // distinction is the whole of the side-to-side jitter fix.
-        const dockT = easeInOut(
-          clamp01((segF - segIdx - DOCK_HOLD) / (1 - 2 * DOCK_HOLD)),
-        );
-        const dockNow =
-          DOCK_POS[segIdx] + (DOCK_POS[segIdx + 1] - DOCK_POS[segIdx]) * dockT;
+        const dockT = easeInOut(clamp01((segF - segIdx - DOCK_HOLD) / (1 - 2 * DOCK_HOLD)));
+        const dockNow = DOCK_POS[segIdx] + (DOCK_POS[segIdx + 1] - DOCK_POS[segIdx]) * dockT;
         let panFrac = panFrom + (panTo - panFrom) * localT + dockNow;
-
-        // Park the sphere against its own projected edge rather than at a
-        // constant offset — see EDGE. 1.06 covers the silhouette, which sits a
-        // little outside the true radius under perspective, plus the width of
-        // a node's own sprite.
-        //
-        // Keyframes with no entry get 0, which puts the limit at half the
-        // width and constrains nothing: their pan is zero and the dock alone
-        // never reaches that far, so the scatter still overruns the screen and
-        // the knight keeps its own framing.
         const edgeFrom = EDGE[fromKey] ?? 0;
         const edgeTo = EDGE[toKey] ?? 0;
         const edge = edgeFrom + (edgeTo - edgeFrom) * localT;
         const ballFrac = (OUTER * 1.06) / Math.max(1, visibleWidth);
         const limit = Math.max(0, 0.5 - ballFrac * edge);
         panFrac = Math.max(-limit, Math.min(limit, panFrac));
-
         const panX = panFrac * visibleWidth;
 
-        // Roll, interpolated the same way. Zero everywhere except across the
-        // lean into the knight — see TILT.
         const tiltFrom = TILT[fromKey] ?? 0;
         const tiltTo = TILT[toKey] ?? 0;
         const tilt = tiltFrom + (tiltTo - tiltFrom) * localT;
         const cosT = Math.cos(tilt);
         const sinT = Math.sin(tilt);
 
-        // 0 while the graph is still a graph, 1 once it is a sculpture. Drives
-        // the dust fade-in and the real nodes' shrink — see SCULPT_FROM.
-        const sculpt = easeInOut(clamp01((segF - SCULPT_FROM) / (SCULPT_TO - SCULPT_FROM)));
-
-        /*
-         * Depth cue. `half` is roughly how far the current shape reaches along
-         * the view axis and `back` is what a particle at the far end of that
-         * range is dimmed to, both eased between keyframes. Everything the
-         * piece has in the way of volume comes from these two numbers: without
-         * them a point cloud is exactly as flat as it looks, because a
-         * perspective camera 1,300 units away cannot tell you anything useful
-         * about 200 units of depth on its own.
-         */
-        const depthFrom = SHAPE_DEPTH[DEPTH_OF[fromKey]];
-        const depthTo = SHAPE_DEPTH[DEPTH_OF[toKey]];
-        const half = depthFrom.half + (depthTo.half - depthFrom.half) * localT;
-        const back = depthFrom.back + (depthTo.back - depthFrom.back) * localT;
-
-
-        /*
-         * Cross the same boundary the dust does, once, in either direction.
-         * Anything open at the moment interaction closes is dismissed —
-         * otherwise a readout card opened during Ask AI would hang around over
-         * the metrics with no node under it any more — and the slot stops
-         * taking pointer events entirely, so the canvas is not silently
-         * swallowing clicks and hovers over the content beside it.
-         */
-        const nowInteractive = segF < SCULPT_FROM;
-        if (interactive.current !== nowInteractive) {
-          interactive.current = nowInteractive;
-          if (!nowInteractive) {
-            setHovered(null);
-            setSelected(null);
-          }
-          const el = slotRef.current;
-          if (el) el.style.pointerEvents = nowInteractive ? 'auto' : 'none';
-        }
-
-        // Cumulative yaw: every completed segment's full delta, plus the
-        // current segment's partial delta — so a turn that already happened
-        // stays turned instead of resetting each segment.
         let yaw = 0;
         for (let s = 0; s < segIdx; s++) yaw += YAW_DELTA[s];
         yaw += YAW_DELTA[segIdx] * localT;
         const cosY = Math.cos(yaw);
         const sinY = Math.sin(yaw);
 
+        const dFrom = DEPTH[fromKey];
+        const dTo = DEPTH[toKey];
+        const half = dFrom.half + (dTo.half - dFrom.half) * localT;
+        const back = dFrom.back + (dTo.back - dFrom.back) * localT;
+
+        const dustA = lerpK(DUST_A);
+        const nodeG = lerpK(NODE_G);
+        const coreA = lerpK(CORE_A);
+        const coreS = lerpK(CORE_S);
+        const nodeS = lerpK(NODE_S);
+
+        // Swirl setup for this segment, if any: an orthonormal basis about its axis.
+        const sw = SWIRL[segIdx];
+        let e1x = 0, e1y = 0, e1z = 0, e2x = 0, e2y = 0, e2z = 0, ax = 0, ay = 0, az = 0;
+        if (sw) {
+          [ax, ay, az] = sw.axis;
+          // Any vector not parallel to the axis, Gram–Schmidt, then cross.
+          let hx = 1, hy = 0, hz = 0;
+          if (Math.abs(ax) > 0.9) {
+            hx = 0;
+            hy = 1;
+          }
+          const d = hx * ax + hy * ay + hz * az;
+          e1x = hx - d * ax;
+          e1y = hy - d * ay;
+          e1z = hz - d * az;
+          const l = Math.hypot(e1x, e1y, e1z) || 1;
+          e1x /= l;
+          e1y /= l;
+          e1z /= l;
+          e2x = ay * e1z - az * e1y;
+          e2y = az * e1x - ax * e1z;
+          e2z = ax * e1y - ay * e1x;
+        }
+        const turns = sw ? sw.turns * Math.PI * 2 : 0;
+        /** Interpolate point i of two packed arrays into `out`, straight or along an arc. */
+        const interp = (a: Float32Array, b: Float32Array, i: number) => {
+          const j = i * 3;
+          const x0 = a[j], y0 = a[j + 1], z0 = a[j + 2];
+          const x1 = b[j], y1 = b[j + 1], z1 = b[j + 2];
+          if (!sw || a === b) {
+            out[0] = x0 + (x1 - x0) * localT;
+            out[1] = y0 + (y1 - y0) * localT;
+            out[2] = z0 + (z1 - z0) * localT;
+            return;
+          }
+          const h0 = x0 * ax + y0 * ay + z0 * az;
+          const h1 = x1 * ax + y1 * ay + z1 * az;
+          const u0 = x0 * e1x + y0 * e1y + z0 * e1z;
+          const v0 = x0 * e2x + y0 * e2y + z0 * e2z;
+          const u1 = x1 * e1x + y1 * e1y + z1 * e1z;
+          const v1 = x1 * e2x + y1 * e2y + z1 * e2z;
+          const r0 = Math.hypot(u0, v0);
+          const r1 = Math.hypot(u1, v1);
+          const a0 = Math.atan2(v0, u0);
+          let da = Math.atan2(v1, u1) - a0;
+          if (da > Math.PI) da -= Math.PI * 2;
+          else if (da < -Math.PI) da += Math.PI * 2;
+          da += turns;
+          const ang = a0 + da * localT;
+          const rr = r0 + (r1 - r0) * localT;
+          const hh = h0 + (h1 - h0) * localT;
+          const c = Math.cos(ang) * rr;
+          const s = Math.sin(ang) * rr;
+          out[0] = hh * ax + c * e1x + s * e2x;
+          out[1] = hh * ay + c * e1y + s * e2y;
+          out[2] = hh * az + c * e1z + s * e2z;
+        };
+
         /*
-         * 0 → 1 over CITE_FADE_MS, from the moment the finished answer's
-         * citations were set. Only used when the current highlight came from
-         * an answer (`citing`) rather than a hover or a click — a visitor
-         * pointing at a node wants to see it respond immediately, so that
-         * path stays instant and skips this ramp entirely (see its use
-         * below).
+         * Interaction follows the nodes being a readable graph: on through the
+         * Galaxy and the Dive, off through the dust figures, back on for the
+         * Constellation. Crossing out of it dismisses anything open.
          */
+        const nowInteractive = nodeG > INTERACTIVE_AT;
+        if (interactive.current !== nowInteractive) {
+          interactive.current = nowInteractive;
+          if (!nowInteractive) {
+            setHovered(null);
+            setSelected(null);
+          }
+          const slot = slotRef.current;
+          if (slot) slot.style.pointerEvents = nowInteractive ? 'auto' : 'none';
+        }
+
         const citeT = citeStart.current
           ? easeOutCubic(clamp01((performance.now() - citeStart.current) / CITE_FADE_MS))
           : 1;
 
+        const fromN = figures[fromKey];
+        const toN = figures[toKey];
         for (let i = 0; i < nodes.length; i++) {
           const n = nodes[i];
-          const [x0, y0, z0] = from[i];
-          const [x1, y1, z1] = to[i];
-          const x = x0 + (x1 - x0) * localT;
-          const y = y0 + (y1 - y0) * localT;
-          const z = z0 + (z1 - z0) * localT;
-          /*
-           * Yaw about the vertical axis, then roll about the depth axis, then
-           * — and only then — the pan.
-           *
-           * The pan used to be added to `x` up at the top of this block,
-           * before either rotation, and that single line was responsible for
-           * three separate faults that all looked like different bugs:
-           *
-           *   · "Same mind, different lens" is the keyframe that sits at a
-           *     half turn, where cos(yaw) is −1. A dock of −0.3 rotated
-           *     through 180° is a dock of +0.3, so the one screen whose
-           *     heading is right-aligned was the one screen the cloud was
-           *     mirrored onto the right — sitting on top of its own heading,
-           *     while every other screen obeyed the rule perfectly.
-           *
-           *   · The knight arrives at about −80° of yaw, where sin(yaw) is
-           *     nearly −1. Nearly all of its dock was therefore being turned
-           *     into a *z* offset: the piece was translated some 780 units
-           *     straight at a camera sitting 1,300 away, which is a 2.5×
-           *     magnification nobody asked for. That is why it stopped
-           *     fitting on the screen, and why it drifted back to the middle
-           *     instead of docking right — the horizontal component left over
-           *     after the rotation was almost nothing.
-           *
-           *   · Same arithmetic, smaller angle, on Ask AI: 72° of yaw was
-           *     pushing the sphere most of a screen closer and most of the
-           *     way back to centre. The moon looked enormous there, which was
-           *     a happy accident rather than a decision, and it is a decision
-           *     now — see ZOOM.heroLeft.
-           *
-           * A dock is a statement about where something sits *on the screen*.
-           * It cannot be expressed in a coordinate system that the shape is
-           * about to be spun in. Rotate the shape, then move it sideways.
-           */
+          interp(fromN.pos, toN.pos, i);
+          const [x, y, z] = out;
+          // Rotate the figure, then pan it — a dock is a statement about the screen.
           const rx = x * cosY + z * sinY;
           const rz = -x * sinY + z * cosY;
           const sx = rx * cosT - y * sinT;
@@ -1557,197 +1324,117 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           n.fy = n.y = sy;
           n.fz = n.z = rz;
 
-          // Real nodes are shaded by depth too, once the field is a sculpture.
-          // Leaving them at flat opacity put a hundred evenly-bright dots in
-          // front of a cloud that had a front and a back, and they read as
-          // stuck to the lens rather than as embedded in the piece.
-          //
-          // Measured off the un-panned position, because the cue is about
-          // where a point sits inside its own shape. Feeding it the panned x
-          // made the depth shading depend on which side of the page the cloud
-          // happened to be docked to, so the sculpture lit differently on the
-          // left than on the right.
-          const cue = clamp01(
-            0.5 + (sx * CAM.x + sy * CAM.y + rz * CAM.z) / (2 * half),
-          );
-          const shade = 1 - sculpt * (1 - (back + (1 - back) * cue));
+          const cue = clamp01(0.5 + (sx * CAM.x + sy * CAM.y + rz * CAM.z) / (2 * half));
+          const shade = 1 - (1 - nodeG) * (1 - (back + (1 - back) * cue));
 
           const dot = dots.current.get(n.id);
-          if (dot) {
-            const phase = (dot.userData.phase as number) ?? 0;
-            const pulse = 1 + 0.05 * Math.sin(performance.now() * 0.0011 + phase);
-            const base = n.dot * 3;
+          if (!dot) continue;
+          const isPerson = n.kind === 'person';
+          const phase = (dot.userData.phase as number) ?? 0;
+          const pulse = 1 + 0.05 * Math.sin(performance.now() * 0.0011 + phase);
+          const base = n.dot * 3;
+          const sculptSize = n.sculptDot;
+          let scale = (sculptSize + (base * nodeS - sculptSize) * nodeG) * pulse;
+          if (isPerson) scale *= 1.15 * coreS;
+          let opacity = 0.94 * shade;
+          if (isPerson) opacity *= coreA;
 
-            // Blast-radius: dim non-neighbours, enlarge active + neighbours.
-            // The person node stays bright regardless — it's the queen bee,
-            // it never dims. Also enlarges by ~15% permanently so it reads
-            // as the centre of the graph even before anything's hovered.
-            const isPerson = n.kind === 'person';
-            let scaleMul = pulse;
-            let opacityMul = shade;
-            if (isPerson) {
-              scaleMul *= 1.15;
-            }
-
-            /*
-             * The hand-off from graph to sculpture.
-             *
-             * For the first two screens this has to be a knowledge graph and
-             * nothing else: the copy says "tap a node", every dot is a real
-             * project or tool with a label and a readout behind it, and
-             * padding that out with thousands of decorative motes would be
-             * inventing data in the one place the visitor is being invited to
-             * inspect it. So the dust does not exist at all through Hero and
-             * Ask AI — not merely hidden, not scaled to zero and lurking in
-             * the raycast, but a `THREE.Points` with `visible = false` that
-             * is not in the graph's node list to begin with.
-             *
-             * After that the graph stops being a thing you read and starts
-             * being a thing you watch — it has no labels, nothing is
-             * clickable in practice, and its whole job is to hold a legible
-             * silhouette. Two changes cross over together across that
-             * boundary: the dust fades up, and the real nodes come down to
-             * meet it. A project node is 20 units across against dust at
-             * 3–8, so leaving them alone gives a band of fat coloured blobs
-             * sitting on top of a fine mist, reading as two unrelated layers
-             * rather than one field. Scaled to ~a third they land in the same
-             * size band as the dust and the cloud reads as a single material.
-             *
-             * The person node shrinks by less than the rest: it is still the
-             * origin every shape is built around, and in the knight it sits
-             * at the heart of the turned pedestal, so it stays the one dot
-             * that is obviously larger than everything else.
-             */
-            scaleMul *= 1 - sculpt * (1 - n.sculptDot / base);
-            if (!isPerson) opacityMul *= 1 - sculpt * 0.1;
-
-            if (highlightIds) {
-              // Hover and selection are a direct response to the pointer and
-              // stay instant (t = 1). A citation is the one case that ramps
-              // in over CITE_FADE_MS instead of snapping — see citeT above.
-              const t = citing ? citeT : 1;
-              if (highlightIds.has(n.id)) {
-                /*
-                 * A cited node is the subject, not a neighbour of one, so it
-                 * gets nearly the boost the hovered node gets. Using the
-                 * neighbour scale would make an answer's citations look like
-                 * incidental context.
-                 */
-                const targetScale = n.id === activeId ? 1.55 : citing ? 1.5 : 1.25;
-                scaleMul *= 1 + (targetScale - 1) * t;
-              } else if (!isPerson) {
-                opacityMul *= 1 - (1 - 0.18) * t;
-                scaleMul *= 1 - (1 - 0.85) * t;
-              }
-            }
-            dot.scale.set(base * scaleMul, base * scaleMul, 1);
-            const mat = dot.material as THREE.SpriteMaterial;
-            mat.opacity = 0.94 * opacityMul;
+          // Colour: the node's own kind colour as a graph, the figure's as dust.
+          const kind = dot.userData.kindColor as THREE.Color | undefined;
+          if (kind && !isPerson) {
+            const fcFrom = fromN.col;
+            const fcTo = toN.col;
+            const j = i * 3;
+            tmpColor.setRGB(
+              fcFrom[j] + (fcTo[j] - fcFrom[j]) * localT,
+              fcFrom[j + 1] + (fcTo[j + 1] - fcFrom[j + 1]) * localT,
+              fcFrom[j + 2] + (fcTo[j + 2] - fcFrom[j + 2]) * localT,
+            );
+            tmpColor.lerp(kind, nodeG);
+            (dot.material as THREE.SpriteMaterial).color.copy(tmpColor);
           }
+
+          if (highlightIds) {
+            const t = citing ? citeT : 1;
+            if (highlightIds.has(n.id)) {
+              const target = n.id === activeId ? 1.55 : citing ? 1.5 : 1.25;
+              scale *= 1 + (target - 1) * t;
+            } else if (!isPerson) {
+              opacity *= 1 - (1 - 0.18) * t;
+              scale *= 1 - (1 - 0.85) * t;
+            }
+          }
+          dot.scale.set(scale, scale, 1);
+          (dot.material as THREE.SpriteMaterial).opacity = opacity;
         }
 
-        /*
-         * The dust, through the same interpolation, the same pan, the same
-         * yaw and the same roll — one field, one set of rules, two index
-         * spaces. Skipped entirely while sculpt is zero, which is both free
-         * and the thing that keeps the promise made two screens earlier: while
-         * the copy says "tap a node", every point on screen is a node.
-         */
+        /* The dust: same interpolation, same rotation, same pan, its own colours. */
         const cloud = dust.current;
         if (cloud) {
-          cloud.begin(sculpt, back);
-          if (sculpt > 0.002) {
-            const dFrom = dustShapes[fromKey];
-            const dTo = dustShapes[toKey];
-            const FIELD_FROM = DUST_COUNT - FIELD_COUNT;
-
-            // The sculpture: interpolated, panned, yawed, rolled.
-            for (let i = 0; i < FIELD_FROM; i++) {
-              const j = i * 3;
-              const x0 = dFrom[j];
-              const y0 = dFrom[j + 1];
-              const z0 = dFrom[j + 2];
-              const x = x0 + (dTo[j] - x0) * localT;
-              const y = y0 + (dTo[j + 1] - y0) * localT;
-              const z = z0 + (dTo[j + 2] - z0) * localT;
-              const rx = x * cosY + z * sinY;
-              const rz = -x * sinY + z * cosY;
-              const fx = rx * cosT - y * sinT;
-              const fy = rx * sinT + y * cosT;
-              // Cue off the un-panned position, pan applied to the position
-              // only — same correction as the node loop above, and it has to
-              // be the same or the dust and the nodes dock to different
-              // places and shade on different axes.
-              const cue = clamp01(0.5 + (fx * CAM.x + fy * CAM.y + rz * CAM.z) / (2 * half));
-              cloud.set(i, fx + panX, fy, rz, cue, 1);
-            }
-
-            /*
-             * The sky: none of the above. Its own separate pass rather than a
-             * branch inside the one above, because the whole point is that it
-             * shares none of that arithmetic — no pan, no yaw, no roll, and no
-             * interpolation either, since its position is identical in every
-             * keyframe. It is written where it was authored and left there.
-             *
-             * That is what stops it turning its narrow edge to the camera and
-             * printing a rectangle of stars across the middle of the page, and
-             * it is also what makes it read as distance: parallax is the
-             * absence of movement in the far field while the near one moves,
-             * and the previous version moved both together.
-             *
-             * Held at 0.45 — quiet enough to sit behind the subject, present
-             * enough to fill the corners the sculpture never reaches.
-             */
-            const SKY_HALF = OUTER * 2.2;
-            for (let i = FIELD_FROM; i < cloud.count; i++) {
-              const j = i * 3;
-              const z = dFrom[j + 2];
-              cloud.set(
-                i,
-                dFrom[j],
-                dFrom[j + 1],
-                z,
-                clamp01(0.5 + (z * CAM.z) / (2 * SKY_HALF)),
-                0.45,
-              );
-            }
+          cloud.begin(1, back);
+          // Gas on paper needs more ink than light on black to read at the same strength.
+          const inkBoost = theme === 'light' ? 1.45 : 1;
+          const dF = dustFigures[fromKey];
+          const dT = dustFigures[toKey];
+          for (let i = 0; i < shaped; i++) {
+            interp(dF.pos, dT.pos, i);
+            const [x, y, z] = out;
+            const rx = x * cosY + z * sinY;
+            const rz = -x * sinY + z * cosY;
+            const fx = rx * cosT - y * sinT;
+            const fy = rx * sinT + y * cosT;
+            const cue = clamp01(0.5 + (fx * CAM.x + fy * CAM.y + rz * CAM.z) / (2 * half));
+            const w = dF.w[i] + (dT.w[i] - dF.w[i]) * localT;
+            cloud.set(i, fx + panX, fy, rz, cue, Math.min(1, w * dustA * inkBoost));
+            const j = i * 3;
+            cloud.tint(
+              i,
+              dF.col[j] + (dT.col[j] - dF.col[j]) * localT,
+              dF.col[j + 1] + (dT.col[j + 1] - dF.col[j + 1]) * localT,
+              dF.col[j + 2] + (dT.col[j + 2] - dF.col[j + 2]) * localT,
+            );
           }
+          // The graph's own background star slab is off: the page sky
+          // (SkyBackdrop) is the one star layer, so the Hero never shows two.
+          for (let i = 0; i < FIELD_COUNT; i++) cloud.set(shaped + i, 0, 0, 0, 0, 0);
           cloud.end();
         }
 
         /*
-          Labels: shown for a few different situations.
-          - Always for person/role/project at the very start of scroll (hero
-            state), same as before.
-          - Any time a node is hovered or selected, its own label plus every
-            neighbour's label — that's the "blast radius" callout.
-        */
-        const heroLabels = segIdx === 0 && localT < 0.1;
-        for (const [id, label] of labels.current) {
-          if (highlightIds?.has(id)) {
-            label.visible = true;
-          } else {
-            label.visible = heroLabels && !highlightIds;
-          }
+         * The black hole is a ray tracer, so it is mounted only once the
+         * reader is a few screens from it, and then left mounted so scrolling
+         * back and forth never recompiles it.
+         */
+        if (!holeMounted && segF > SEG_COUNT - 2.2) {
+          holeMounted = true;
+          setHoleOn(true);
         }
 
-        /*
-         * The only thing left for this stage to decide is how visible the
-         * graph is, and there is exactly one case where the answer is "less":
-         * Metrics and Proof, the two screens whose content spans the full
-         * column with the cloud centred directly behind it. Everywhere else
-         * the graph is docked clear of the text and runs at full strength —
-         * including the knight, which the first version buried at 15% behind
-         * 113px type and thereby threw away its own ending.
-         *
-         * Continuous, and driven by the same segF as everything else, so it
-         * fades with the scroll instead of stepping on a threshold. Written
-         * only when the rounded value actually changes, so a screen with no
-         * fade in it costs one comparison a frame.
-         */
+        // Labels: only what is hovered, selected or cited.
+        for (const [id, label] of labels.current) {
+          const a = highlightIds?.has(id) ? 1 : 0;
+          label.visible = a > 0;
+          (label.material as THREE.SpriteMaterial).opacity = a;
+        }
+
+        // Metrics and Proof are full-width copy over a centred cloud: dim it there.
         const dim = 1 - 0.55 * clamp01(Math.min(segF - 1.45, 3.85 - segF) / 0.45);
         const slot = slotRef.current;
         if (slot) {
+          /*
+           * On the last screen the whole layer scrolls up with the name
+           * instead of staying pinned — pinned, the figure sat still while
+           * the black hole screen slid up and sliced through it. One screen
+           * of scroll moves it exactly one screen, so it leaves in step with
+           * the heading, and the black hole screen rising below covers the
+           * space it vacates.
+           */
+          const up = clamp01(segF - (SEG_COUNT - 1)) * window.innerHeight;
+          const lifted = up.toFixed(1);
+          if (slot.dataset.up !== lifted) {
+            slot.style.transform = up > 0 ? `translate3d(0, ${-up}px, 0)` : '';
+            slot.dataset.up = lifted;
+          }
           const shown = dim.toFixed(2);
           if (slot.dataset.dim !== shown) {
             slot.style.opacity = shown;
@@ -1759,17 +1446,20 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-    // `size` belongs in here now and did not use to. Everything horizontal in
-    // the loop is measured against the visible width, which is derived from
-    // the canvas dimensions — so the effect has to re-run when they arrive.
-    // Without it the loop kept the closure from the very first render, when
-    // the ResizeObserver had not reported yet and size was {0, 0}: the visible
-    // width came out as zero, every pan and dock multiplied to nothing, and
-    // the graph sat dead centre. It looked like it corrected itself on hover,
-    // which is the tell — hovering changes highlightIds, highlightIds is a
-    // dependency, and re-running the effect was rebuilding the closure with
-    // the real size in it. The fix is the dependency, not the symptom.
-  }, [visible, nodes, shapes, dustShapes, highlightIds, activeId, size.w, size.h]);
+  }, [
+    visible,
+    nodes,
+    figures,
+    dustFigures,
+    sky,
+    shaped,
+    theme,
+    highlightIds,
+    activeId,
+    citing,
+    size.w,
+    size.h,
+  ]);
 
   return (
     <section ref={outerRef} id="graph" className={`relative scroll-mt-[24px] ${className}`}>
@@ -1867,7 +1557,10 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
             <div className="mt-[30px] flex flex-wrap items-center gap-x-[30px] gap-y-[6px]">
               <button
                 type="button"
-                onClick={() => askBlockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                onClick={() => {
+                  askBlockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  window.setTimeout(() => document.getElementById('ask-input')?.focus({ preventScroll: true }), 900);
+                }}
                 className="pill"
               >
                 Ask my AI about me
@@ -1882,34 +1575,17 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           </div>
         </div>
 
-        {/* Ask AI — card on the RIGHT, graph on the LEFT. Full "Ask about me" title kept in. */}
-        <div ref={askBlockRef} id="ask" className="shell flex min-h-screen items-center justify-end scroll-mt-[24px]">
-          <div className="w-full max-w-[540px] pointer-events-auto">
-            <BorderGlow>
-              <div className="px-[6px] pb-[36px] pt-[6px]">
-                <AskAI />
-              </div>
-            </BorderGlow>
-
-            {/*
-              One line, and only while an answer has cited something.
-
-              The graph lighting up beside the card is easy to miss if you are
-              reading — the movement is in peripheral vision and the eye is
-              busy. This says what just happened once, in the smallest voice
-              available, and disappears with the next question. Without it the
-              feature is invisible to the people it was built for; with a
-              permanent caption it would be an instruction for a thing that
-              has not happened yet.
-            */}
-            <p
-              aria-live="polite"
-              className="t-caption mt-[14px] text-center text-ash transition-opacity duration-500"
-              style={{ opacity: citing ? 1 : 0 }}
-            >
-              {cited.size} node{cited.size === 1 ? '' : 's'} lit in the graph — everything
-              this answer drew on.
-            </p>
+        {/*
+          Ask AI — on the RIGHT, graph on the LEFT. The stage is a full screen
+          tall so the orb has room to fly from the pill to the middle; it is
+          pointer-events-none itself (the graph to its left stays hoverable)
+          and only the pill, the answer and its button take clicks.
+        */}
+        <div ref={askBlockRef} id="ask" className="shell flex min-h-screen items-center justify-end scroll-mt-[0px]">
+          <div className="pointer-events-auto relative h-screen w-full max-w-[560px]">
+            <AskChat
+              note={citing ? `${cited.size} node${cited.size === 1 ? '' : 's'} lit in the graph` : null}
+            />
           </div>
         </div>
 
@@ -1999,7 +1675,11 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           leftover shape transitions played out unseen; the sequence now ends
           on the knight, so all the tail has to do is let it sit.
         */}
-        <div style={{ height: '100vh' }} aria-hidden />
+        <div aria-hidden className="relative h-screen w-full overflow-hidden">
+          {holeOn && (
+            <BlackHoleHeroSection focus={[0.72, 0.46]} vignette={0.3} resolution={0.65} />
+          )}
+        </div>
       </div>
 
       {/*
@@ -2023,13 +1703,24 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
 function MobileJourney({ projects }: { projects?: Project[] }) {
   const { graph, nodes } = useNodes(projects);
   const [selected, setSelected] = useState<GraphNode | null>(null);
-  const shape = useMemo(() => sphereShape(nodes.length), [nodes]);
+  const [theme] = useTheme();
+  // The same galaxy as desktop's Hero, without the scroll sequence.
+  const shape = useMemo(() => {
+    const rank: Record<NodeKind, number> = { person: 0, role: 1, project: 2, achievement: 3, domain: 4, tech: 5 };
+    const order = nodes
+      .map((node, i) => ({ i, r: rank[node.kind] }))
+      .sort((a, b) => a.r - b.r || a.i - b.i)
+      .map((o) => o.i);
+    const f = galaxyNodeFigures(order, theme === 'light').galaxy.pos;
+    const core = nodes.findIndex((node) => node.kind === 'person');
+    if (core >= 0) f.fill(0, core * 3, core * 3 + 3);
+    return f;
+  }, [nodes, theme]);
 
   nodes.forEach((n, i) => {
-    const p = shape[i];
-    n.x = n.fx = p[0];
-    n.y = n.fy = p[1];
-    n.z = n.fz = p[2];
+    n.x = n.fx = shape[i * 3];
+    n.y = n.fy = shape[i * 3 + 1];
+    n.z = n.fz = shape[i * 3 + 2];
   });
 
   const pick = (raw: Node3D) => {
@@ -2043,7 +1734,7 @@ function MobileJourney({ projects }: { projects?: Project[] }) {
   const askRef = useRef<HTMLDivElement>(null);
 
   return (
-    <section id="graph" className="shell pt-[120px] scroll-mt-[96px]">
+    <section id="graph" className="shell relative pt-[120px] scroll-mt-[96px]">
       <h1 className="t-display text-bone">
         {first}
         <br />
@@ -2074,12 +1765,8 @@ function MobileJourney({ projects }: { projects?: Project[] }) {
       </p>
       <GraphReadout node={selected} onDismiss={() => setSelected(null)} />
 
-      <div ref={askRef} id="ask" className="mt-[60px] scroll-mt-[96px]">
-        <BorderGlow>
-          <div className="px-[6px] pb-[60px]">
-            <AskAI />
-          </div>
-        </BorderGlow>
+      <div ref={askRef} id="ask" className="relative mt-[24px] h-[min(100svh,760px)] min-h-[560px]">
+        <AskChat />
       </div>
 
       <div className="mt-[60px] grid grid-cols-2 gap-[24px]">

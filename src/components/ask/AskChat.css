@@ -1,0 +1,657 @@
+/* src/components/ask/AskChat.css — pill → planet (UFO scan) → chat. */
+
+.ap {
+  /* Everything scales with the space it is given, phone to large monitor. */
+  container-type: size;
+  --stage-top: clamp(84px, 12cqh, 128px); /* clears the fixed nav */
+  --stage-bottom: clamp(16px, 4cqh, 40px);
+  --pill-y: 52%;
+  --planet-y: 44%;
+  --planet: clamp(130px, min(26cqh, 42cqw), 230px);
+  --card-w: min(100%, 600px);
+  --card-h: min(100%, 680px);
+  --ease: cubic-bezier(0.65, 0, 0.2, 1);
+  --ink: #1a1230;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── intro (pill mode only) ── */
+
+.ap-intro {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--stage-top) + (100% - var(--stage-top) - var(--stage-bottom)) * 0.52 - clamp(110px, 18cqh, 170px));
+  text-align: center;
+  transition:
+    opacity 360ms,
+    transform 600ms var(--ease),
+    filter 360ms;
+}
+.ap:not([data-mode='pill']) .ap-intro {
+  opacity: 0;
+  transform: translateY(-24px);
+  filter: blur(6px);
+  pointer-events: none;
+}
+.ap-error-intro {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--stage-top) + (100% - var(--stage-top) - var(--stage-bottom)) * 0.52 + 48px);
+  text-align: center;
+}
+@keyframes ap-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ── stage and the morphing shell ── */
+
+.ap-stage {
+  position: absolute;
+  inset: var(--stage-top) 0 var(--stage-bottom) 0;
+}
+.ap-shell {
+  position: absolute;
+  left: 50%;
+  top: var(--pill-y);
+  width: min(100%, 540px);
+  height: clamp(52px, 7cqh, 62px);
+  border-radius: 999px;
+  translate: -50% -50%;
+  overflow: hidden;
+  isolation: isolate;
+  background: color-mix(in srgb, var(--surface-raised) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 10px 40px color-mix(in srgb, var(--accent) 22%, transparent);
+  transition:
+    width 700ms var(--ease),
+    height 700ms var(--ease),
+    border-radius 700ms var(--ease),
+    top 700ms var(--ease),
+    background-color 500ms,
+    border-color 500ms,
+    box-shadow 700ms;
+}
+.ap-shell:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.ap[data-mode='planet'] .ap-shell {
+  top: var(--planet-y);
+  width: var(--planet);
+  height: var(--planet);
+  border-radius: 50%;
+  border-color: transparent;
+  background: #1b1650;
+  box-shadow:
+    0 0 50px rgba(130, 140, 255, 0.45),
+    0 0 120px rgba(110, 90, 255, 0.25);
+}
+.ap[data-mode='chat'] .ap-shell {
+  top: 50%;
+  width: var(--card-w);
+  height: var(--card-h);
+  border-radius: clamp(18px, 3cqw, 26px);
+  border-color: color-mix(in srgb, var(--text) 10%, transparent);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+/* ── planet surface ── */
+
+.ap-planet {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  transition: opacity 500ms;
+  pointer-events: none;
+}
+.ap[data-mode='planet'] .ap-planet {
+  opacity: 1;
+  transition-delay: 180ms;
+}
+.ap-planet-tex {
+  position: absolute;
+  inset: 0;
+  background-color: #2a2370;
+  background-repeat: repeat-x;
+  background-size: calc(var(--planet) * 2) var(--planet);
+  background-position: 0 50%;
+  animation: ap-spin 16s linear infinite;
+}
+@keyframes ap-spin {
+  to {
+    background-position: calc(var(--planet) * -2) 50%;
+  }
+}
+.ap-planet-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 32%),
+    radial-gradient(circle at 40% 38%, rgba(0, 0, 0, 0) 40%, rgba(6, 4, 30, 0.55) 72%, rgba(4, 2, 20, 0.92) 100%);
+  box-shadow: inset 0 0 18px rgba(170, 180, 255, 0.55);
+  border-radius: 50%;
+}
+/* The tractor beam's footprint sweeping across the surface. */
+.ap-scan {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  top: 0;
+  height: 26%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255, 246, 168, 0.55), rgba(255, 246, 168, 0) 70%);
+  opacity: 0;
+  mix-blend-mode: screen;
+  transition: opacity 400ms;
+}
+.ap[data-mode='planet'] .ap-ufo[data-state='scan'] ~ .ap-shell .ap-scan {
+  opacity: 1;
+  animation: ap-sweep 1.6s ease-in-out infinite alternate;
+  transition-delay: 500ms;
+}
+@keyframes ap-sweep {
+  from {
+    transform: translateY(5%);
+  }
+  to {
+    transform: translateY(290%);
+  }
+}
+
+/* ── pill ── */
+
+.ap-pill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 9px 0 20px;
+  transition:
+    opacity 260ms,
+    filter 260ms;
+}
+.ap:not([data-mode='pill']) .ap-pill {
+  opacity: 0;
+  filter: blur(8px);
+  pointer-events: none;
+}
+.ap-spark {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: color-mix(in srgb, var(--accent) 60%, white);
+}
+.ap-pill input {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 300;
+}
+.ap-pill input::placeholder {
+  color: var(--text-muted);
+}
+.ap-send {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  transition:
+    background-color 200ms,
+    color 200ms,
+    transform 200ms var(--ease);
+}
+.ap-send svg {
+  width: 18px;
+  height: 18px;
+}
+.ap-send[data-ready] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.ap-send[data-ready]:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+.ap-send:disabled {
+  opacity: 0.4;
+}
+
+/* ── UFO ── */
+
+.ap-ufo {
+  position: absolute;
+  left: 50%;
+  --ufo: calc(var(--planet) * 0.8);
+  top: calc(var(--planet-y) - var(--planet) / 2 - var(--ufo) * 0.9);
+  width: var(--ufo);
+  height: calc(var(--ufo) * 1.07);
+  margin-left: calc(var(--ufo) / -2);
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  transform: translate(340px, -220px) scale(0.35) rotate(24deg);
+  transition:
+    transform 800ms cubic-bezier(0.2, 0.9, 0.25, 1),
+    opacity 400ms;
+}
+.ap-ufo[data-state='scan'] {
+  opacity: 1;
+  transform: none;
+}
+.ap-ufo[data-state='leave'] {
+  opacity: 0;
+  transform: translate(-460px, -300px) scale(0.3) rotate(-28deg);
+  transition:
+    transform 700ms cubic-bezier(0.55, 0, 0.8, 0.4),
+    opacity 600ms 150ms;
+}
+.ap-ufo-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  stroke: var(--ink);
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  transform-origin: 50% 36%;
+}
+.ap-ufo[data-state='scan'] .ap-ufo-svg {
+  animation: ap-scanmove 1.6s ease-in-out infinite alternate;
+}
+@keyframes ap-scanmove {
+  from {
+    transform: translate(-16px, 0) rotate(-6deg);
+  }
+  to {
+    transform: translate(16px, -4px) rotate(6deg);
+  }
+}
+.ap-beam {
+  stroke: none;
+  opacity: 0;
+  transform-origin: 70px 64px;
+  transform: scaleY(0);
+  transition:
+    opacity 300ms,
+    transform 450ms var(--ease);
+}
+.ap-ufo[data-state='scan'] .ap-beam {
+  opacity: 0.7;
+  transform: scaleY(1);
+  transition-delay: 650ms;
+  animation: ap-beam 0.8s ease-in-out 1.1s infinite alternate;
+}
+@keyframes ap-beam {
+  to {
+    opacity: 0.35;
+  }
+}
+.ap-dome {
+  fill: rgba(143, 211, 255, 0.5);
+}
+.ap-glint {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.4;
+  opacity: 0.8;
+}
+.ap-head {
+  fill: #7ee081;
+}
+.ap-ant {
+  fill: none;
+}
+.ap-ant-tip {
+  fill: #ffd84a;
+}
+.ap-eye {
+  fill: #fff;
+  stroke-width: 1.6;
+}
+.ap-pupil {
+  fill: var(--ink);
+  stroke: none;
+}
+.ap-disc {
+  fill: #c9ced8;
+}
+.ap-under {
+  fill: #7d8596;
+}
+.ap-seam {
+  fill: none;
+  stroke-width: 1.8;
+}
+.ap-light {
+  stroke-width: 1.6;
+  fill: #ffd84a;
+  animation: ap-chase 0.9s steps(1) infinite;
+}
+.ap-light.l2 {
+  animation-delay: 0.3s;
+}
+.ap-light.l3 {
+  animation-delay: 0.6s;
+}
+@keyframes ap-chase {
+  0% {
+    fill: #ffd84a;
+  }
+  33% {
+    fill: #ff5a8a;
+  }
+  66% {
+    fill: #6fe3ff;
+  }
+}
+
+/* ── status under the planet ── */
+
+.ap-status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--planet-y) + var(--planet) / 2 + 22px);
+  text-align: center;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 300ms,
+    transform 500ms var(--ease);
+  pointer-events: none;
+}
+.ap[data-mode='planet'] .ap-status {
+  opacity: 1;
+  transform: none;
+  transition-delay: 400ms;
+}
+.ap-status-q {
+  max-width: 34ch;
+  margin: 0 auto;
+  font-size: 15px;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ap-status-l {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ap-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.ap-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: soft-pulse 1.1s ease-in-out infinite;
+}
+.ap-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.ap-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* ── chat card: quiet, roomy, no boxes inside boxes ── */
+
+.ap-chat {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(12px, 2.4cqw, 20px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms;
+}
+.ap[data-mode='chat'][data-open] .ap-chat {
+  opacity: 1;
+  pointer-events: auto;
+  /* Only once the card has finished opening (set on transitionend), so text never sits on the round shape. */
+  transition: opacity 320ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ap[data-mode='chat'] .ap-chat {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.ap-chat-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px 10px;
+}
+.ap-chat-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ap-chat-title i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7ee081;
+  box-shadow: 0 0 8px #7ee081;
+}
+.ap-new {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  transition: color 200ms, border-color 200ms;
+}
+.ap-new:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 30%, transparent);
+}
+.ap-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 4px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(14px, 2.4cqh, 22px);
+  scrollbar-width: thin;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent);
+}
+.ap-q {
+  align-self: flex-end;
+  max-width: min(85%, 46ch);
+  padding: 8px 14px;
+  border-radius: 16px 16px 4px 16px;
+  background: color-mix(in srgb, var(--accent) 85%, transparent);
+  color: var(--accent-ink);
+  font-size: clamp(14px, 1.6cqw + 8px, 15px);
+  line-height: 1.45;
+  animation: ap-fade 360ms var(--ease) both;
+}
+/* Answers are plain text on the card, no bubble: the card is the bubble. */
+.ap-a {
+  align-self: stretch;
+  padding: 0 4px;
+  animation: ap-fade 360ms var(--ease) both;
+}
+.ap-md {
+  color: var(--text);
+  font-size: clamp(14px, 1.6cqw + 8px, 15.5px);
+  line-height: 1.65;
+  font-weight: 300;
+  max-width: 62ch;
+}
+.ap-md > * + * {
+  margin-top: 10px;
+}
+.ap-md ul {
+  padding-left: 18px;
+  list-style: disc;
+}
+.ap-md li::marker {
+  color: var(--accent);
+}
+.ap-md li + li {
+  margin-top: 4px;
+}
+.ap-md strong {
+  font-weight: 600;
+}
+.ap-md a {
+  color: var(--emphasis);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.ap-md code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+.ap-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--accent);
+  animation: caret 1s step-end infinite;
+}
+.ap-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ap-error {
+  font-size: 13px;
+  color: var(--emphasis);
+  padding: 4px;
+}
+.ap-chat-form {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  transition: border-color 200ms, box-shadow 200ms;
+}
+.ap-chat-form:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.ap-chat-form textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+  max-height: 110px;
+  padding: 10px 0;
+  resize: none;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font-size: 16px; /* 16px stops iOS zooming on focus */
+  font-weight: 300;
+  line-height: 1.4;
+  field-sizing: content;
+}
+.ap-chat-form textarea::placeholder,
+.ap-pill input::placeholder {
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+}
+.ap-chat-form textarea:placeholder-shown {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-tab {
+  flex: none;
+  align-self: center;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 200ms;
+  pointer-events: none;
+}
+.ap-pill:focus-within .ap-tab,
+.ap-chat-form:focus-within .ap-tab {
+  opacity: 1;
+}
+/* Touch screens have no Tab key. */
+@media (hover: none) {
+  .ap-tab {
+    display: none;
+  }
+}
+.ap-send {
+  align-self: center;
+}
+
+/* Small phones: tighter, and the planet sits higher. */
+@container (max-width: 420px) {
+  .ap-chat-head {
+    padding-bottom: 6px;
+  }
+  .ap-q {
+    max-width: 90%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ap-shell,
+  .ap-ufo,
+  .ap-intro {
+    transition-duration: 1ms !important;
+  }
+  .ap-planet-tex,
+  .ap-ufo-svg,
+  .ap-scan,
+  .ap-beam,
+  .ap-light {
+    animation: none !important;
+  }
+}

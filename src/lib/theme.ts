@@ -106,8 +106,8 @@ export type Palette = {
  * Dark — the Dala void. Pure black, one violet accent, amber emphasis.
  */
 const dark: Palette = {
-  surface: '#000000',
-  surfaceRaised: '#0c0c10', //  a hair off pure black — gives the glass cards a surface to sit on
+  surface: '#040716', //        deep navy night — the sky behind the Milky Way band
+  surfaceRaised: '#0a0f28', //  a step up from the sky, for cards
 
   text: '#ffffff', //      21.0:1
   textBody: '#bdbdbd', //  11.2:1
@@ -163,12 +163,12 @@ const dark: Palette = {
      * different distances. The teal that used to be in here was the one colour
      * on the page that no star comes in, and it showed.
      */
-    ambient: ['#8fb6ff', '#ffe6a3', '#ffb26b', '#cfd9ee', '#c9a6ff'],
+    ambient: ['#8fb6ff', '#e8f0ff', '#6f9dff', '#cfdcff', '#ffcfa8'],
     /*
      * The same stellar sequence as the nodes, so that once the graph becomes a
      * sculpture there is one sky rather than two populations sharing a shape.
      */
-    dust: ['#8fb6ff', '#cfd9ee', '#ffe6a3', '#ffb26b', '#c9a6ff'],
+    dust: ['#bcd2ff', '#ffffff', '#8fb3ff', '#dfe8ff', '#ffdcbf'],
     linkAlpha: 0.08,
     dimAlpha: 0.1,
     ambientScale: 1,

@@ -3,7 +3,7 @@ import { Route, Routes, useLocation } from 'react-router-dom';
 import Home from '@/routes/Home';
 import { SmoothScroll } from '@/components/core/SmoothScroll';
 import { AmbientField } from '@/components/core/AmbientField';
-import { DayNightToggle } from '@/components/core/DayNightToggle';
+import { SkyBackdrop } from '@/components/core/SkyBackdrop';
 import { useProfile } from '@/lib/useContent';
 
 /** Admin is its own chunk — none of it ships to a visitor who never opens it. */
@@ -58,33 +58,12 @@ function RouteMeta() {
 }
 
 /**
- * The two things that hang over every page — and the one page they must not.
+ * Site chrome: smooth scrolling and the drifting stars. Mounted on the main
+ * site only. The archive and the island are their own rooms with their own
+ * air, their own lighting and their own pull cords, and Lenis's wheel
+ * listener would eat the scroll events they integrate themselves.
  *
- * AmbientField and DayNightToggle were mounted unconditionally at the root,
- * which is right for a site that is one continuous surface and wrong the
- * moment part of it stops being that. Both were bleeding straight through
- * into the locker room: the ambient motes drifting over a corridor that has
- * its own air, and the theme cord hanging in the top right of a room that
- * does not use the site theme at all — a rope you can pull that changes
- * nothing you can see, which is worse than no control.
- *
- * SmoothScroll is in here for a different and more concrete reason: Lenis
- * attaches a non-passive wheel listener to the document and preventDefaults
- * it, which is exactly what it is for on a long page and exactly wrong on a
- * route with no page scroll at all. It was silently eating every wheel event
- * in the locker room — including the ones aimed at the writing pad, which is
- * why the pad could not be scrolled no matter how much overflow it had. The
- * archive integrates wheel deltas itself; it does not want a second thing
- * doing the same job on the same events.
- *
- * The archive already has its own dark, its own palette and its own switch on
- * the wall. Site chrome belongs to the site.
- *
- * PullCord stays mounted here rather than inside StudioNav or Admin's header
- * because it is `position: fixed`, and a `filter`/`backdrop-filter` on any
- * ancestor re-anchors fixed descendants to that ancestor instead of the
- * viewport. Both of those headers have one. This level has neither, so it is
- * the one place the cord is guaranteed to hang from the real top of the page.
+ * The site itself is night only — there is no theme switch here any more.
  */
 function SiteChrome() {
   const { pathname } = useLocation();
@@ -92,8 +71,8 @@ function SiteChrome() {
   return (
     <>
       <SmoothScroll />
+      <SkyBackdrop />
       <AmbientField />
-      <DayNightToggle />
     </>
   );
 }

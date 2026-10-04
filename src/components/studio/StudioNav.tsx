@@ -79,17 +79,6 @@ export function StudioNav() {
                 {open ? 'Close' : 'Menu'}
               </button>
               {/*
-                DayNightToggle used to render here. Moved to App.tsx: this
-                pill has `backdrop-blur-[10px]` (a `backdrop-filter`), and a
-                `filter`/`backdrop-filter` on any ancestor makes it the
-                containing block for `position: fixed` descendants — an
-                obscure corner of the CSS spec. Combined with this pill's own
-                `overflow-hidden`, the pull-cord was being clipped to this
-                small rounded box instead of hanging from the real viewport
-                top, which is exactly what the screenshot showed: the rope
-                existed, just trapped inside the nav bar's corner.
-              */}
-              {/*
                 The archive lives in the bar rather than only at the foot of
                 the page. `onPointerEnter` fires the dynamic import a beat
                 before the click lands, so the chunk is usually already in

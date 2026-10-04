@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_THEME, THEMES, type Palette, type Theme } from '@/lib/theme';
+import { THEMES, type Palette, type Theme } from '@/lib/theme';
 import {
   applyCardTintVars,
   COLOR_OVERRIDES_EVENT,
@@ -9,50 +9,26 @@ import {
 
 /** Runtime theme state. All colours come from theme.ts; none are defined here. */
 
-export const THEME_KEY = 'ishant:theme';
-export const THEME_EVENT = 'ishant:theme-change';
-
+/**
+ * The main site is night only. The archive and the island keep their own
+ * lighting (their own pull cords, their own palettes); the site theme is no
+ * longer switchable, so this always resolves to dark.
+ */
 export function resolveTheme(): Theme {
-  try {
-    const stored = localStorage.getItem(THEME_KEY);
-    if (stored === 'dark' || stored === 'light') return stored;
-  } catch {
-    /* storage blocked */
-  }
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : DEFAULT_THEME;
+  return 'dark';
 }
 
-export function applyTheme(theme: Theme) {
-  document.documentElement.dataset.theme = theme;
+export function applyTheme(_theme?: Theme) {
+  document.documentElement.dataset.theme = 'dark';
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', THEMES[theme].surface);
-  try {
-    localStorage.setItem(THEME_KEY, theme);
-  } catch {
-    /* storage blocked */
-  }
-  applyCardTintVars(theme);
-  window.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: theme }));
+    ?.setAttribute('content', THEMES.dark.surface);
+  applyCardTintVars('dark');
 }
 
+/** Always dark. Kept as a hook so components read the palette the same way. */
 export function useTheme(): [Theme, (t: Theme) => void] {
-  const [theme, setThemeState] = useState<Theme>(DEFAULT_THEME);
-
-  useEffect(() => {
-    setThemeState((document.documentElement.dataset.theme as Theme) || resolveTheme());
-    const onChange = (e: Event) => setThemeState((e as CustomEvent<Theme>).detail);
-    window.addEventListener(THEME_EVENT, onChange);
-    return () => window.removeEventListener(THEME_EVENT, onChange);
-  }, []);
-
-  return [
-    theme,
-    (t: Theme) => {
-      applyTheme(t);
-      setThemeState(t);
-    },
-  ];
+  return ['dark', () => {}];
 }
 
 /** Re-renders whenever the admin Colors tab (or a freshly-loaded /api/content) changes overrides. */

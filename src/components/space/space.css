@@ -1,0 +1,339 @@
+/* src/components/space/space.css
+ *
+ * The cartoon layer: the Timeline's rocket, the Contact satellite and the UFO.
+ * One shared look — chunky ink outlines, flat bright fills, rubbery motion —
+ * using the site's own accent and emphasis colours so the vehicles belong to
+ * the page rather than being stickers on it.
+ */
+
+.rk,
+.sat {
+  --ink: #1a1230;
+  --cream: #f7efe1;
+  --hot: #ff5a3c;
+  --glass: #8fd3ff;
+  --metal: #a6adbd;
+}
+
+/* ── Rocket (shuttle stack) ───────────────────────────────────────── */
+
+.rk {
+  --boost: 0.6;
+  --lean: 0deg;
+  --sx: 1;
+  --sy: 1;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 240px;
+  height: 77px;
+  margin-top: -38px;
+  /* The engine bells (x=12 of a viewBox starting at -60, at 0.96px per unit) sit on the line's head. */
+  margin-left: -69px;
+  pointer-events: none;
+  will-change: transform;
+  z-index: 2;
+}
+.rk-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform-origin: 29% 50%;
+  transform: rotate(var(--lean)) scale(var(--sx), var(--sy));
+}
+.rk-body {
+  stroke: #1d2236;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  animation: rk-rumble 90ms steps(2) infinite;
+}
+.rk-srb rect,
+.rk-srb path {
+  fill: #f1f2f6;
+}
+.rk-srb-band {
+  fill: none;
+  stroke: #b9bfcc;
+  stroke-width: 1.2;
+}
+.rk-skirt {
+  fill: #3a3f50;
+}
+.rk-tank {
+  fill: #e8732c;
+}
+.rk-tank-line {
+  fill: none;
+  stroke: #c45a1c;
+  stroke-width: 1.2;
+}
+.rk-wing {
+  fill: #e9ebf1;
+}
+.rk-wing-edge {
+  fill: none;
+  stroke: #3a3f50;
+  stroke-width: 3.2;
+}
+.rk-orbiter {
+  fill: #ffffff;
+}
+.rk-orbiter-nose {
+  fill: #3a3f50;
+}
+.rk-fin {
+  fill: #c9ced8;
+}
+.rk-window {
+  fill: #3fc3d1;
+}
+.rk-engine {
+  fill: #6c7284;
+}
+.rk-flame {
+  transform-origin: 12px 40px;
+  transform: scaleX(var(--boost)) scaleY(calc(0.78 + var(--boost) * 0.18));
+}
+.rk-flame path {
+  transform-origin: 12px 40px;
+}
+.rk-f1 {
+  fill: #ff8a1f;
+  animation: rk-flick 110ms ease-in-out infinite alternate;
+}
+.rk-f2 {
+  fill: #ffc21f;
+  animation: rk-flick 80ms ease-in-out infinite alternate-reverse;
+}
+.rk-f3 {
+  fill: #fff4b8;
+  animation: rk-flick 60ms ease-in-out infinite alternate;
+}
+@keyframes rk-flick {
+  from {
+    transform: scale(0.84, 0.92);
+  }
+  to {
+    transform: scale(1.1, 1.05);
+  }
+}
+@keyframes rk-rumble {
+  0% {
+    transform: translateY(-0.4px);
+  }
+  100% {
+    transform: translateY(0.4px);
+  }
+}
+
+/* Smoke puffs left behind on the line. */
+.rk-puff {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, #ffd27a 0%, #ff9a3c 45%, transparent 72%);
+  opacity: 0;
+  pointer-events: none;
+}
+.rk-puff:nth-child(even) {
+  background: radial-gradient(circle at 40% 40%, #c79bd8 0%, #7f5aa6 50%, transparent 72%);
+}
+.rk-puff.go {
+  animation: rk-puff 1150ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+@keyframes rk-puff {
+  0% {
+    opacity: 0.75;
+    transform: translate(0, 0) scale(0.35);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx, -26px), var(--dy, -10px)) scale(1.7);
+  }
+}
+
+/* ── Satellite ──────────────────────────────────────────────────────── */
+
+.sat {
+  width: 440px;
+  height: 230px;
+  pointer-events: none;
+}
+.sat-float {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  animation: sat-bob 8s ease-in-out infinite;
+}
+@keyframes sat-bob {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: -6px -12px;
+  }
+}
+.sat-svg {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.sat-truss {
+  fill: none;
+  stroke: #9aa2b2;
+  stroke-width: 3;
+}
+.sat-truss.thin {
+  stroke-width: 1.6;
+}
+.sat-cells {
+  fill: url(#sat-cell);
+}
+.sat-cell-lines {
+  fill: none;
+  stroke: #6f8fe6;
+  stroke-width: 0.9;
+  opacity: 0.75;
+}
+.sat-frame {
+  fill: none;
+  stroke: #d7dbe4;
+  stroke-width: 2;
+}
+.sat-hinge {
+  fill: #c9ced8;
+  stroke: #6c7384;
+  stroke-width: 1.2;
+}
+.sat-bus {
+  fill: url(#sat-foil);
+  stroke: #8a611b;
+  stroke-width: 1.6;
+}
+.sat-crinkle {
+  fill: none;
+  stroke: #fff2c4;
+  stroke-width: 1.1;
+  opacity: 0.55;
+}
+.sat-deck {
+  fill: #3a3f4c;
+  stroke: #1f2330;
+  stroke-width: 1.2;
+}
+.sat-lens {
+  fill: #2a6fb0;
+  stroke: #0f1b2e;
+  stroke-width: 1.4;
+}
+.sat-lens-glint {
+  fill: white;
+  opacity: 0.85;
+}
+.sat-thruster {
+  fill: #7b8292;
+  stroke: #3f4554;
+  stroke-width: 1.2;
+}
+.sat-whip {
+  fill: none;
+  stroke: #c9ced8;
+  stroke-width: 1.8;
+}
+.sat-beacon {
+  fill: #ff3b3b;
+  animation: sat-blink 1.4s steps(1) infinite;
+}
+@keyframes sat-blink {
+  0%,
+  60% {
+    fill: #ff3b3b;
+  }
+  61%,
+  100% {
+    fill: #5a1414;
+  }
+}
+.sat-joint {
+  fill: #c9ced8;
+  stroke: #6c7384;
+  stroke-width: 1.2;
+}
+.sat-dish {
+  --aim: -40deg;
+  transform-box: view-box;
+  transform-origin: 200px 48px;
+  transform: rotate(var(--aim));
+}
+.sat-bowl {
+  fill: url(#sat-dish);
+  stroke: #8d94a3;
+  stroke-width: 1.4;
+}
+.sat-feed {
+  fill: #ff5a3c;
+  stroke: #7a2a1a;
+  stroke-width: 1;
+}
+
+/* Signal: rings rippling out from the bus. */
+.sat-ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+.sat-ripple {
+  border-color: color-mix(in srgb, var(--accent) 65%, white);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.sat.is-sending .sat-ripple {
+  animation: sat-ripple 1.6s cubic-bezier(0.2, 0.6, 0.3, 1) forwards;
+}
+.sat.is-sending .sat-ripple:nth-of-type(2) {
+  animation-delay: 0.28s;
+}
+.sat.is-sending .sat-ripple:nth-of-type(3) {
+  animation-delay: 0.56s;
+}
+.sat.is-pinging .sat-ripple:nth-of-type(1) {
+  animation: sat-ripple 1.2s cubic-bezier(0.2, 0.6, 0.3, 1) forwards;
+}
+@keyframes sat-ripple {
+  0% {
+    opacity: 0.9;
+    scale: 0.4;
+  }
+  100% {
+    opacity: 0;
+    scale: 4.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-body,
+  .rk-f1,
+  .rk-f2,
+  .rk-f3,
+  .sat-float,
+  .sat-beacon,
+  .sat-ripple,
+  .rk-puff {
+    animation: none !important;
+  }
+}

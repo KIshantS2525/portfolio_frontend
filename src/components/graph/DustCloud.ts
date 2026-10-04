@@ -159,6 +159,20 @@ export class DustCloud {
       this.sculpt * (this.back + (1 - this.back) * cue) * weight * MAX_ALPHA;
   }
 
+  /**
+   * Recolour particle `i`. The figures each carry their own palette (a
+   * galaxy's warm core and blue arms, a nebula's teal and rust), interpolated
+   * with the positions, so colour is written per frame alongside them.
+   */
+  tint(i: number, r: number, g: number, b: number) {
+    const bucket = i % 3;
+    const slot = (i - bucket) / 3;
+    const c = this.colors[bucket];
+    c[slot * 4] = r;
+    c[slot * 4 + 1] = g;
+    c[slot * 4 + 2] = b;
+  }
+
   /** Close the frame and upload. */
   end() {
     if (this.sculpt <= 0.002) return;

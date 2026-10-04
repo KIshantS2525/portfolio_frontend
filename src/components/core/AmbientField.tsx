@@ -41,7 +41,7 @@ import { usePalette, useTheme } from '@/lib/useTheme';
  * page and the field inside the canvas are the same material.
  */
 
-const COUNT = 56;
+const COUNT = 30;
 
 /** mulberry32 — seeded, so the field is identical on every load. */
 function rng(seed: number) {
@@ -103,8 +103,8 @@ export function AmbientField() {
       // the span, so a 6px particle drew a 6px dot; a star spends most of its
       // radius on halo and cross, so the same visible point needs about twice
       // the box around it.
-      const size = quiet ? 7 + rand() * 8 : 8 + rand() * 15;
-      const opacity = quiet ? 0.3 + rand() * 0.16 : 0.42 + rand() * 0.28;
+      const size = quiet ? 5 + rand() * 4 : 6 + rand() * 7;
+      const opacity = quiet ? 0.25 + rand() * 0.15 : 0.35 + rand() * 0.25;
       return {
         left: rand() * 100,
         top: rand() * 100,
@@ -152,17 +152,27 @@ export function AmbientField() {
         const bobX = Math.sin(t * p.bobSpeed + p.phase) * p.bobAmount;
         const bobY = Math.cos(t * p.bobSpeed * 0.8 + p.phase) * p.bobAmount * 0.6;
 
-        // Scroll parallax: shift opposite to scroll, scaled by depth, capped
-        // so a very long page doesn't carry a particle off past a screen's
-        // worth of travel.
-        const parallaxY = Math.max(-vh, Math.min(vh, -scrollY * (0.04 + p.depth * 0.16)));
+        /*
+         * Scroll parallax, wrapped.
+         *
+         * This used to be clamped to ±1 viewport, which is why the sky went
+         * empty further down the page: a few screens in, every star had been
+         * pushed a full viewport upward — off the top — and the clamp held
+         * them there for the rest of the page. Wrapping instead means a star
+         * that leaves the top re-enters at the bottom, so the field is equally
+         * populated at every scroll depth and the parallax never runs out.
+         */
+        const margin = p.size + 24;
+        const span = vh + margin * 2;
+        const raw = (p.top / 100) * vh - scrollY * (0.04 + p.depth * 0.16) + margin;
+        const baseY = (((raw % span) + span) % span) - margin;
 
         // Pointer drift: particles inside `reach` px ease away from the
         // cursor. Cheap and per-particle, no spatial index needed at this count.
         let pushX = 0;
         let pushY = 0;
         const cx = (p.left / 100) * vw;
-        const cy = (p.top / 100) * vh + parallaxY;
+        const cy = baseY;
         const dx = cx - px;
         const dy = cy - py;
         const dist = Math.hypot(dx, dy);
@@ -172,7 +182,7 @@ export function AmbientField() {
           pushY = (dy / dist) * force;
         }
 
-        el.style.transform = `translate3d(${bobX + pushX}px, ${bobY + pushY + parallaxY}px, 0)`;
+        el.style.transform = `translate3d(${bobX + pushX}px, ${bobY + pushY + baseY}px, 0)`;
       }
 
       raf = requestAnimationFrame(tick);

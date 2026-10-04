@@ -1,7 +1,7 @@
 // src/routes/Home.tsx
 import { lazy, Suspense } from 'react';
 import { StudioNav } from '@/components/studio/StudioNav';
-import { StackCards } from '@/components/studio/StackCards';
+import { ProjectTimeline } from '@/components/work/ProjectTimeline';
 import { ScrollExpand } from '@/components/studio/ScrollExpand';
 import { CardSpotlight } from '@/components/studio/CardSpotlight';
 import { Stack } from '@/components/minimal/Stack';
@@ -56,13 +56,8 @@ export default function Home() {
           </Suspense>
         </WhenVisible>
 
-        {/* Work */}
-        <section id="work" className="shell scroll-mt-[96px] pt-[120px]">
-          <Reveal>
-            <h2 className="t-heading-lg mb-[36px] text-bone">Work</h2>
-          </Reveal>
-          <StackCards />
-        </section>
+        {/* Work — a timeline; each project opens into a sheet. */}
+        <ProjectTimeline />
 
         {/* Feature */}
         <section className="shell pt-[120px]">

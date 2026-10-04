@@ -70,26 +70,8 @@
   </head>
   <body>
     <script>
-      // Runs before first paint so there is never a flash of the wrong theme.
-      // Explicit choice wins; otherwise follow the OS; otherwise dark, because
-      // the void is the brand.
-      (function () {
-        try {
-          var stored = localStorage.getItem('ishant:theme');
-          var theme =
-            stored === 'light' || stored === 'dark'
-              ? stored
-              : window.matchMedia('(prefers-color-scheme: light)').matches
-                ? 'light'
-                : 'dark';
-          document.documentElement.dataset.theme = theme;
-          document
-            .querySelector('meta[name="theme-color"]')
-            .setAttribute('content', theme === 'light' ? '#ffffff' : '#000000');
-        } catch (e) {
-          document.documentElement.dataset.theme = 'dark';
-        }
-      })();
+      // The site is night only. Set before first paint.
+      document.documentElement.dataset.theme = 'dark';
     </script>
     <div id="root"></div>
     <noscript>
