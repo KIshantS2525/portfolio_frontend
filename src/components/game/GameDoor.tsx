@@ -1,4 +1,4 @@
-// src/components/game/GameDoor.tsx
+// frontend/src/components/game/GameDoor.tsx
 import { DoorCard } from '@/components/core/DoorCard';
 
 /**

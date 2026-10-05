@@ -1,4 +1,4 @@
-// src/components/graph/GraphJourney.tsx
+// frontend/src/components/graph/GraphJourney.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
@@ -14,6 +14,7 @@ import {
   eyeFigure,
   galaxyFigures,
   galaxyNodeFigures,
+  setGalaxyPalette,
   orionFigures,
   vortexFigure,
   type Figure,
@@ -25,11 +26,9 @@ import { buildMatcher } from '@/components/archive/cite';
 import { Compare } from '@/components/studio/Compare';
 import { SplitFlap } from '@/components/studio/SplitFlap';
 import { prefillAsk } from '@/lib/ask';
-// `metrics` is not part of the admin tree, so it stays compiled. `profile` is,
-// so it comes from the store — see useProfile.
-import { metrics } from '@/lib/content';
 import type { Project } from '@/lib/content';
-import { useAchievements, useProfile, useRoles } from '@/lib/useContent';
+// Everything here comes from the admin-editable store, not content.ts directly.
+import { useAchievements, useMetrics, useProfile, useRoles } from '@/lib/useContent';
 import { nameClass } from '@/lib/nameFont';
 
 /**
@@ -790,6 +789,7 @@ export function GraphJourney({
 /* ── Desktop: pinned graph column, scrolling content column ─────────────── */
 
 function DesktopJourney({ className, projects }: { className?: string; projects?: Project[] }) {
+  const metrics = useMetrics();
   const palette = usePalette();
   const colors = palette.graph;
   const [theme] = useTheme();
@@ -939,6 +939,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
       .map((node, i) => ({ i, r: rank[node.kind] }))
       .sort((a, b) => a.r - b.r || a.i - b.i)
       .map((o) => o.i);
+    setGalaxyPalette(palette.galaxy);
     const gal = galaxyNodeFigures(order, light);
     const or = orionFigures(n, light, 0x1d0e);
     const eye = eyeFigure(n, light, 0x2e7e);
@@ -962,7 +963,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
       vortex: vor,
       rest: vor,
     };
-  }, [nodes, light]);
+  }, [nodes, light, palette.galaxy]);
 
   /**
    * The dust, in every figure — a separate, far larger index space. The last
@@ -971,6 +972,8 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
    */
   const shaped = DUST_COUNT - FIELD_COUNT;
   const dustFigures = useMemo<Record<Key, Figure>>(() => {
+    // Admin galaxy colours (see setGalaxyPalette in cosmos.ts).
+    setGalaxyPalette(palette.galaxy);
     const gal = galaxyFigures(shaped, light);
     const or = orionFigures(shaped, light);
     const eye = eyeFigure(shaped, light);
@@ -988,7 +991,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
       vortex: vor,
       rest: vor,
     };
-  }, [shaped, light]);
+  }, [shaped, light, palette.galaxy]);
   const sky = useMemo(() => starFieldShape(FIELD_COUNT, 907), []);
 
   /** Whether the black hole is mounted. It is expensive, so it exists only near the Rest screen. */
@@ -1703,6 +1706,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
 /* ── Mobile / tablet: plain stack, no pinning, no scroll-jacking ─────────── */
 
 function MobileJourney({ projects }: { projects?: Project[] }) {
+  const metrics = useMetrics();
   const { graph, nodes } = useNodes(projects);
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [theme] = useTheme();

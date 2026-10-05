@@ -1,16 +1,25 @@
-// src/lib/useContent.ts
+// frontend/src/lib/useContent.ts
 import { useSyncExternalStore } from 'react';
 import {
   projects as staticProjects,
   profile as staticProfile,
   roles as staticRoles,
   achievements as staticAchievements,
+  education as staticEducation,
+  skills as staticSkills,
+  about as staticAbout,
+  stackRows as staticStack,
+  metrics as staticMetrics,
+  SUGGESTED_QUESTIONS as staticQuestions,
   type Project,
   type Role,
   type Achievement,
   type Profile,
+  type Education,
+  type StackRow,
+  type Metric,
 } from '@/lib/content';
-import { setColorOverrides, type ColorOverrides } from '@/lib/colorOverrides';
+import { normaliseColors, setColorOverrides, type ColorOverrides } from '@/lib/colorOverrides';
 
 /**
  * The single source of truth for content the site renders.
@@ -64,43 +73,72 @@ export type ContentTree = {
   achievements: Achievement[];
   /** Admin-set graph/card colour overrides. Absent means "use theme.ts defaults". */
   colors?: ColorOverrides;
+  /*
+   * The sections below were compiled-only until the admin panel learned to
+   * edit them. A store written before that has none of them, so each one
+   * falls back to content.ts individually when it is missing (undefined or
+   * null) — but an EMPTY list saved on purpose is respected, not overridden.
+   */
+  education: Education[];
+  skills: Record<string, string[]>;
+  about: string[];
+  stack: StackRow[];
+  metrics: Metric[];
+  questions: string[];
 };
 
-const staticTree: ContentTree = {
+export const STATIC_TREE: ContentTree = {
   profile: staticProfile,
   roles: staticRoles,
   projects: staticProjects,
   achievements: staticAchievements,
+  education: staticEducation,
+  skills: staticSkills,
+  about: staticAbout,
+  stack: staticStack,
+  metrics: staticMetrics,
+  questions: staticQuestions,
 };
 
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** An array from the store, or the compiled fallback when the key is absent. */
+function list<T>(v: unknown, fallback: T[]): T[] {
+  return Array.isArray(v) ? (v as T[]) : fallback;
+}
+
 /**
- * Normalises whatever the backend hands back: fills in missing arrays,
- * coerces the shape, and returns nothing (null) if the payload isn't a valid
- * tree so the caller can fall back to the static set instead of rendering
- * something half-broken.
+ * Normalises whatever the backend hands back: per-field fallback to the
+ * compiled content for anything missing, and null when the payload isn't a
+ * tree at all so the caller keeps the static set.
+ *
+ * Shared with the admin panel (it loads the same shape), so both sides agree
+ * on what a half-written store means.
  */
-function normaliseTree(raw: unknown): ContentTree | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const t = raw as Partial<ContentTree>;
-  if (!t.profile && !t.projects && !t.roles && !t.achievements) return null;
+export function normaliseTree(raw: unknown): ContentTree | null {
+  if (!isObj(raw)) return null;
+  const t = raw as Partial<Record<keyof ContentTree, unknown>>;
+  if (!t.profile && !Array.isArray(t.projects) && !Array.isArray(t.roles)) return null;
   return {
-    // A stored tree with a null profile is a half-seeded store, not an
-    // instruction to render a nameless site — fall through to the compiled
-    // one field at a time rather than all-or-nothing.
-    profile: (t.profile as Profile) ?? staticProfile,
-    roles: Array.isArray(t.roles) && t.roles.length ? (t.roles as Role[]) : staticRoles,
-    projects: Array.isArray(t.projects)
-      ? (t.projects as Project[]).map((p) => ({
-          ...p,
-          tech: p.tech ?? [],
-          domains: p.domains ?? [],
-        }))
-      : staticProjects,
-    achievements:
-      Array.isArray(t.achievements) && t.achievements.length
-        ? (t.achievements as Achievement[])
-        : staticAchievements,
-    colors: (t.colors as ColorOverrides) ?? undefined,
+    // A null profile is a half-seeded store, not an instruction to render a
+    // nameless site. Missing profile FIELDS fall back one at a time too.
+    profile: isObj(t.profile) ? { ...staticProfile, ...(t.profile as Partial<Profile>) } : staticProfile,
+    roles: list<Role>(t.roles, staticRoles).map((r) => ({ ...r, projects: r.projects ?? [] })),
+    projects: list<Project>(t.projects, staticProjects).map((p) => ({
+      ...p,
+      tech: p.tech ?? [],
+      domains: p.domains ?? [],
+    })),
+    achievements: list<Achievement>(t.achievements, staticAchievements),
+    // Old two-theme trees ({ dark, light }) are read as their dark half.
+    colors: normaliseColors(t.colors),
+    education: list<Education>(t.education, staticEducation),
+    skills: isObj(t.skills) ? (t.skills as Record<string, string[]>) : staticSkills,
+    about: list<string>(t.about, staticAbout),
+    stack: list<StackRow>(t.stack, staticStack),
+    metrics: list<Metric>(t.metrics, staticMetrics),
+    questions: list<string>(t.questions, staticQuestions),
   };
 }
 
@@ -108,7 +146,7 @@ function normaliseTree(raw: unknown): ContentTree | null {
 
 type Snapshot = { content: ContentTree; ready: boolean };
 
-let snapshot: Snapshot = { content: staticTree, ready: false };
+let snapshot: Snapshot = { content: STATIC_TREE, ready: false };
 let started = false;
 const listeners = new Set<() => void>();
 
@@ -125,19 +163,58 @@ function emit(next: Snapshot) {
 function start() {
   if (started) return;
   started = true;
+  listenForPreview();
   fetch(`${import.meta.env.VITE_API_URL ?? ''}/api/content`)
     .then((r) => (r.ok ? r.json() : null))
     .then((raw) => {
+      // In the admin's live preview, the panel's unsaved tree wins.
+      if (previewing) return;
       const parsed = normaliseTree(raw);
       if (parsed) setColorOverrides(parsed.colors);
-      emit({ content: parsed ?? staticTree, ready: true });
+      emit({ content: parsed ?? STATIC_TREE, ready: true });
     })
     .catch(() => {
+      if (previewing) return;
       // Backend down / not seeded / CORS — the static tree already in the
       // snapshot IS the site. `ready` still flips so consumers that gate on
       // it don't sit forever.
-      emit({ content: staticTree, ready: true });
+      emit({ content: STATIC_TREE, ready: true });
     });
+}
+
+/* ── admin live preview ─────────────────────────────────────────────────── */
+
+/**
+ * The admin panel embeds the real homepage in an iframe at /?preview=1 and
+ * posts its UNSAVED content tree into it on every edit, so the preview shows
+ * exactly what Save would publish. Only messages from a same-origin parent
+ * are accepted; outside an iframe, or without the flag, none of this runs.
+ */
+export const PREVIEW_MESSAGE = 'ishant:preview';
+export const PREVIEW_READY = 'ishant:preview-ready';
+export const PREVIEW_SCROLL = 'ishant:preview-scroll';
+
+let previewing = false;
+
+function listenForPreview() {
+  if (typeof window === 'undefined' || window.parent === window) return;
+  if (!new URLSearchParams(window.location.search).has('preview')) return;
+  window.addEventListener('message', (e) => {
+    if (e.origin !== window.location.origin || e.source !== window.parent) return;
+    const data = e.data as { type?: string; tree?: unknown; target?: string };
+    if (data?.type === PREVIEW_MESSAGE) {
+      const parsed = normaliseTree(data.tree);
+      if (!parsed) return;
+      previewing = true;
+      setColorOverrides(parsed.colors);
+      emit({ content: parsed, ready: true });
+    } else if (data?.type === PREVIEW_SCROLL && data.target) {
+      const el = document.querySelector(data.target);
+      if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY);
+      else if (data.target === 'top') window.scrollTo(0, 0);
+    }
+  });
+  window.parent.postMessage({ type: PREVIEW_READY }, window.location.origin);
 }
 
 function subscribe(cb: () => void) {
@@ -181,23 +258,43 @@ export function useAchievements(): Achievement[] {
   return useContent().content.achievements;
 }
 
+export function useEducation(): Education[] {
+  return useContent().content.education;
+}
+
+export function useSkills(): Record<string, string[]> {
+  return useContent().content.skills;
+}
+
+export function useAbout(): string[] {
+  return useContent().content.about;
+}
+
+export function useStackRows(): StackRow[] {
+  return useContent().content.stack;
+}
+
+export function useMetrics(): Metric[] {
+  return useContent().content.metrics;
+}
+
+export function useQuestions(): string[] {
+  return useContent().content.questions;
+}
+
 /**
- * Legacy shape used by GraphJourney / StackCards / anywhere that only needed
- * projects. Kept so the graph and work-list components didn't all have to
- * change in the same PR as the admin rewrite. It layers backend-added
- * projects (ones with slugs not already in content.ts) on top of the
- * canonical static order — newest additions lead.
+ * Projects, in the store's order.
+ *
+ * This used to compare the store's project count with the compiled count and,
+ * if the store had FEWER, throw the store away and render the compiled list
+ * instead. So deleting a single project in the admin silently discarded every
+ * project edit — renames, rewrites, new tech — and resurrected the deleted
+ * one. The store is the source of truth once it exists; when the backend is
+ * unreachable, the snapshot already holds the compiled list.
  */
 export function useProjects(): { projects: Project[]; extraCount: number; ready: boolean } {
   const { content, ready } = useContent();
   const known = new Set(staticProjects.map((p) => p.slug));
-  const extra = content.projects.filter((p) => !known.has(p.slug));
-  const merged =
-    // If /api/content returned the FULL tree (seeded), it already contains
-    // the static projects — use it verbatim. Otherwise it fell back to the
-    // static tree, in which case `extra` is [] and we still get everything.
-    content.projects.length >= staticProjects.length
-      ? content.projects
-      : [...extra, ...staticProjects];
-  return { projects: merged, extraCount: extra.length, ready };
+  const extraCount = content.projects.filter((p) => !known.has(p.slug)).length;
+  return { projects: content.projects, extraCount, ready };
 }

@@ -1,4 +1,4 @@
-// src/components/space/Rocket.tsx
+// frontend/src/components/space/Rocket.tsx
 'use client';
 
 import { forwardRef } from 'react';

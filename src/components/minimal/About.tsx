@@ -1,10 +1,12 @@
+// frontend/src/components/minimal/About.tsx
 import { Reveal } from '@/components/core/Reveal';
-import { about, education, skills } from '@/lib/content';
-import { useAchievements } from '@/lib/useContent';
+import { useAbout, useAchievements, useEducation, useSkills } from '@/lib/useContent';
 
 export function About() {
-  // `about`, `education` and `skills` are not in the admin tree, so they stay
-  // compiled. Achievements are, so they must not.
+  // All of it from the admin-editable store.
+  const about = useAbout();
+  const education = useEducation();
+  const skills = useSkills();
   const achievements = useAchievements();
   return (
     <section id="about" className="shell scroll-mt-[96px] pt-[120px]">

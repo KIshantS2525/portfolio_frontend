@@ -1,7 +1,9 @@
-// src/components/core/SkyBackdrop.tsx
+// frontend/src/components/core/SkyBackdrop.tsx
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { usePalette } from '@/lib/useTheme';
+import type { Palette } from '@/lib/theme';
 
 /**
  * The sky behind the whole site: a deep navy night, slightly lighter toward
@@ -9,7 +11,8 @@ import { useEffect, useRef } from 'react';
  * ones and the odd red giant. The Milky Way band is not here — it belongs to
  * the Hero only (see MilkyWay.tsx).
  *
- * Painted once into a fixed canvas at load (and again on a real resize).
+ * Painted once into a fixed canvas at load (and again on a real resize, or
+ * when the admin changes the sky colours — see Palette['sky'] in theme.ts).
  * Nothing here animates; the drifting stars and the figures move in front of
  * it, which is what makes it read as distance.
  */
@@ -24,7 +27,13 @@ function rng(seed: number) {
   };
 }
 
-function paint(canvas: HTMLCanvasElement) {
+/** '#d2e1ff' → '210,225,255', for building rgba() strings. */
+function rgb(hex: string): string {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
+function paint(canvas: HTMLCanvasElement, sky: Palette['sky']) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const W = Math.round(window.innerWidth * dpr);
   const H = Math.round(window.innerHeight * dpr);
@@ -35,9 +44,11 @@ function paint(canvas: HTMLCanvasElement) {
 
   // Deep navy, a touch lighter in the middle of the frame.
   const base = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.45, Math.max(W, H) * 0.75);
-  base.addColorStop(0, '#070b24');
-  base.addColorStop(0.55, '#050819');
-  base.addColorStop(1, '#020310');
+  base.addColorStop(0, sky.center);
+  base.addColorStop(0.55, sky.mid);
+  base.addColorStop(1, sky.edge);
+  const star = rgb(sky.star);
+  const brightStar = rgb(sky.bright);
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
 
@@ -49,7 +60,7 @@ function paint(canvas: HTMLCanvasElement) {
     const size = (rand() < 0.93 ? 0.35 + rand() * 0.5 : 0.8 + rand() * 0.7) * dpr;
     const tint = rand();
     const col =
-      tint < 0.6 ? '210,225,255' : tint < 0.86 ? '255,255,255' : tint < 0.95 ? '160,190,255' : '255,214,180';
+      tint < 0.6 ? star : tint < 0.86 ? '255,255,255' : tint < 0.95 ? '160,190,255' : '255,214,180';
     ctx.fillStyle = `rgba(${col},${(0.3 + rand() * 0.6).toFixed(2)})`;
     ctx.beginPath();
     ctx.arc(px, py, size, 0, Math.PI * 2);
@@ -59,7 +70,7 @@ function paint(canvas: HTMLCanvasElement) {
   for (let k = 0; k < bright; k++) {
     const px = rand() * W;
     const py = rand() * H;
-    const c = rand() < 0.08 ? '255,170,140' : rand() < 0.75 ? '120,170,255' : '235,242,255';
+    const c = rand() < 0.08 ? '255,170,140' : rand() < 0.75 ? brightStar : '235,242,255';
     const R = (1.4 + rand() * 1.8) * dpr;
     const grad = ctx.createRadialGradient(px, py, 0, px, py, R * 3.2);
     grad.addColorStop(0, 'rgba(255,255,255,0.95)');
@@ -75,6 +86,7 @@ function paint(canvas: HTMLCanvasElement) {
 
 export function SkyBackdrop() {
   const ref = useRef<HTMLCanvasElement>(null);
+  const { sky } = usePalette();
 
   useEffect(() => {
     const canvas = ref.current;
@@ -87,7 +99,7 @@ export function SkyBackdrop() {
       // Mobile URL bars change the height on scroll; only a real resize repaints.
       if (Math.abs(w - last.w) < 2 && Math.abs(h - last.h) < 120) return;
       last = { w, h };
-      paint(canvas);
+      paint(canvas, sky);
     };
     draw();
     const onResize = () => {
@@ -99,7 +111,7 @@ export function SkyBackdrop() {
       window.removeEventListener('resize', onResize);
       window.clearTimeout(t);
     };
-  }, []);
+  }, [sky]);
 
   return (
     <canvas

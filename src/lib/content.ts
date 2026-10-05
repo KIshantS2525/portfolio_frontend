@@ -1,3 +1,4 @@
+// frontend/src/lib/content.ts
 /**
  * The content layer. Every fact on this site lives here.
  * Both routes import from this file. Nothing is hardcoded in a component.
@@ -113,7 +114,14 @@ export const roles: Role[] = [
 
 /* ── Education ──────────────────────────────────────────────────────────── */
 
-export const education = [
+export type Education = {
+  qualification: string;
+  institution: string;
+  period: string;
+  result: string;
+};
+
+export const education: Education[] = [
   {
     qualification: 'B.Tech, Artificial Intelligence and Machine Learning',
     institution: 'Acropolis Institute of Technology and Research, Indore (RGPV)',
@@ -794,7 +802,9 @@ export const about = [
 
 /* ── Stack rows (marquee) ───────────────────────────────────────────────── */
 
-export const stackRows: { label: string; items: string[] }[] = [
+export type StackRow = { label: string; items: string[] };
+
+export const stackRows: StackRow[] = [
   {
     label: 'AI/ML',
     items: [
@@ -861,7 +871,9 @@ export const stackRows: { label: string; items: string[] }[] = [
 
 /* ── Studio metrics (split-flap) ────────────────────────────────────────── */
 
-export const metrics: { value: string; label: string }[] = [
+export type Metric = { value: string; label: string };
+
+export const metrics: Metric[] = [
   { value: '25', label: 'systems shipped' },
   { value: '0.849', label: 'R² on real data, 83 engines' },
   { value: '5,000', label: 'synthetic cycles generated' },

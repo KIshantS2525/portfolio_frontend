@@ -1,9 +1,11 @@
+// frontend/src/components/minimal/Stack.tsx
 import { Reveal } from '@/components/core/Reveal';
 import { Marquee } from '@/components/core/Marquee';
 import { WhenVisible } from '@/components/core/WhenVisible';
-import { stackRows } from '@/lib/content';
+import { useStackRows } from '@/lib/useContent';
 
 export function Stack() {
+  const stackRows = useStackRows();
   return (
     <section className="pt-[120px]">
       <div className="shell">

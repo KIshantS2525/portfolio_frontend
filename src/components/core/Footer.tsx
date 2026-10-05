@@ -1,3 +1,4 @@
+// frontend/src/components/core/Footer.tsx
 import { useProfile } from '@/lib/useContent';
 
 export function Footer() {
@@ -8,7 +9,7 @@ export function Footer() {
       <div className="hairline mb-[24px]" />
       <div className="flex flex-wrap items-baseline justify-between gap-[12px] t-caption text-ash">
         <p>
-          Built by Ishant.{' '}
+          Built by {profile.name.split(' ')[0]}.{' '}
           <a
             href={profile.github}
             target="_blank"

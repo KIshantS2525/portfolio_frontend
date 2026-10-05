@@ -1,9 +1,10 @@
+// frontend/src/components/studio/StudioNav.tsx
 'use client';
 
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Mark } from '@/components/core/Header';
-import { useProfile } from '@/lib/useContent';
+import { useProfile, useProjects } from '@/lib/useContent';
 import { OPEN_PROJECT_EVENT } from '@/lib/events';
 
 /**
@@ -17,25 +18,14 @@ import { OPEN_PROJECT_EVENT } from '@/lib/events';
  */
 type NavLink = { label: string; href?: string; project?: string };
 
-const CARDS: { title: string; links: NavLink[] }[] = [
-  {
-    title: 'Work',
-    links: [
-      { label: 'Recall', project: 'recall' },
-      { label: 'OmniTrace', project: 'omnitrace' },
-      { label: 'DiagramStudio', project: 'diagramstudio' },
-      { label: 'All projects', href: '#work' },
-    ],
-  },
-  {
-    title: 'Proof',
-    links: [
-      { label: 'PPE detection', href: '#proof' },
-      { label: 'English → diagram', href: '#proof' },
-      { label: 'Ask my AI', href: '#ask' },
-    ],
-  },
-];
+const PROOF_CARD: { title: string; links: NavLink[] } = {
+  title: 'Proof',
+  links: [
+    { label: 'PPE detection', href: '#proof' },
+    { label: 'English → diagram', href: '#proof' },
+    { label: 'Ask my AI', href: '#ask' },
+  ],
+};
 
 export function StudioNav() {
   const profile = useProfile();
@@ -46,9 +36,21 @@ export function StudioNav() {
    * which meant its GitHub and LinkedIn hrefs were frozen at import time — the
    * one place in this file that could never see an admin edit, however the
    * component re-rendered. Built here instead, from the live profile.
+   *
+   * Likewise the Work links: they are the first three FEATURED projects (tick "Featured" in the
+   * admin to put a project here), falling back to the first three overall.
+   * They used to be three hard-coded slugs that kept pointing at a project
+   * even after it was renamed or deleted in the admin.
    */
+  const { projects } = useProjects();
+  const featured = projects.filter((p) => p.featured);
+  const workLinks: NavLink[] = (featured.length ? featured : projects)
+    .slice(0, 3)
+    .map((p) => ({ label: p.name, project: p.slug }));
+
   const cards: { title: string; links: NavLink[] }[] = [
-    ...CARDS,
+    { title: 'Work', links: [...workLinks, { label: 'All projects', href: '#work' }] },
+    PROOF_CARD,
     {
       title: 'Reach me',
       links: [
@@ -111,7 +113,7 @@ export function StudioNav() {
             <Link to="/" className="flex items-center gap-[10px] text-[15px] text-bone">
               <Mark />
               <span className="hidden sm:inline">{profile.name}</span>
-              <span className="sm:hidden">Ishant</span>
+              <span className="sm:hidden">{profile.name.split(' ')[0]}</span>
             </Link>
 
             <div className="flex items-center gap-[18px]">

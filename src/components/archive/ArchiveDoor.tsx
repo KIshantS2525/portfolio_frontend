@@ -1,5 +1,6 @@
-// src/components/archive/ArchiveDoor.tsx
+// frontend/src/components/archive/ArchiveDoor.tsx
 import { DoorCard } from '@/components/core/DoorCard';
+import { useProfile } from '@/lib/useContent';
 
 /**
  * The door to /archive.
@@ -15,13 +16,14 @@ import { DoorCard } from '@/components/core/DoorCard';
  * points at it.
  */
 export function ArchiveDoor() {
+  const profile = useProfile();
   return (
     <DoorCard
       to="/archive"
       warm={() => void import('@/routes/Archive')}
       variant="archive"
       title="Archive"
-      sub="Ishant Shrivastava"
+      sub={profile.name}
       image="/doors/archive.png"
     />
   );

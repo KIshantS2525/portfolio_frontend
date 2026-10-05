@@ -1,8 +1,8 @@
-// src/components/ask/AskChat.tsx
+// frontend/src/components/ask/AskChat.tsx
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { SUGGESTED_QUESTIONS } from '@/lib/content';
+import { useQuestions } from '@/lib/useContent';
 import { ASK_EVENT } from '@/lib/ask';
 import './AskChat.css';
 
@@ -253,6 +253,7 @@ type UfoState = 'away' | 'scan' | 'leave';
 const MIN_SCAN_MS = 2600;
 
 export function AskChat({ note }: { note?: string | null }) {
+  const SUGGESTED_QUESTIONS = useQuestions();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<Mode>('pill');
@@ -320,9 +321,10 @@ export function AskChat({ note }: { note?: string | null }) {
   useEffect(() => {
     if (input || mode === 'planet') return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const id = window.setInterval(() => setHint((h) => (h + 1) % SUGGESTED_QUESTIONS.length), 3600);
+    const n = Math.max(1, SUGGESTED_QUESTIONS.length);
+    const id = window.setInterval(() => setHint((h) => (h + 1) % n), 3600);
     return () => window.clearInterval(id);
-  }, [input, mode]);
+  }, [input, mode, SUGGESTED_QUESTIONS.length]);
 
   // Thread follows the newest text unless the reader has scrolled up.
   useEffect(() => {

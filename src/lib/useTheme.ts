@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
-import { THEMES, type Palette, type Theme } from '@/lib/theme';
+// frontend/src/lib/useTheme.ts
+import { useEffect, useMemo, useState } from 'react';
+import { type Palette, type Theme } from '@/lib/theme';
 import {
-  applyCardTintVars,
+  applyCssVars,
   COLOR_OVERRIDES_EVENT,
   getColorOverrides,
+  resolvePalette,
   type ColorOverrides,
 } from '@/lib/colorOverrides';
 
-/** Runtime theme state. All colours come from theme.ts; none are defined here. */
+/** Runtime theme state. Default colours come from theme.ts; overrides from the admin. */
 
 /**
  * The main site is night only. The archive and the island keep their own
@@ -20,10 +22,7 @@ export function resolveTheme(): Theme {
 
 export function applyTheme(_theme?: Theme) {
   document.documentElement.dataset.theme = 'dark';
-  document
-    .querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', THEMES.dark.surface);
-  applyCardTintVars('dark');
+  applyCssVars();
 }
 
 /** Always dark. Kept as a hook so components read the palette the same way. */
@@ -43,22 +42,12 @@ export function useColorOverrides(): ColorOverrides {
 }
 
 /**
- * The constellation paints to a canvas, which cannot read CSS variables. It
- * reads the palette object directly instead — same source, no duplication —
- * merged with any admin-set graph colour overrides for the active theme.
+ * The canvas-painted parts (graph, galaxy, sky, particles) cannot read CSS
+ * variables, so they read the palette object instead — theme.ts defaults with
+ * the admin overrides applied. Memoised on the overrides, so the identity only
+ * changes when a colour actually does (the graph rebuilds on identity change).
  */
 export function usePalette(): Palette {
-  const [theme] = useTheme();
   const overrides = useColorOverrides();
-  const base = THEMES[theme];
-  const themeOverrides = overrides[theme];
-  if (!themeOverrides || (!themeOverrides.graph && themeOverrides.linkWidth === undefined)) return base;
-  return {
-    ...base,
-    graph: {
-      ...base.graph,
-      ...themeOverrides.graph,
-      ...(themeOverrides.linkWidth !== undefined ? { linkWidth: themeOverrides.linkWidth } : null),
-    },
-  };
+  return useMemo(() => resolvePalette(overrides), [overrides]);
 }

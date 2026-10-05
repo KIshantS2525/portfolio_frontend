@@ -1,25 +1,33 @@
-// src/routes/Admin.tsx
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+// frontend/src/routes/Admin.tsx
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mark } from '@/components/core/Header';
-import {
-  profile as staticProfile,
-  roles as staticRoles,
-  projects as staticProjects,
-  achievements as staticAchievements,
-  type Project,
-  type Role,
-  type Achievement,
-  type Profile,
+import type {
+  Project,
+  Role,
+  Achievement,
+  Profile,
+  Education,
+  StackRow,
+  Metric,
+  Link as ProjectLink,
 } from '@/lib/content';
-import { THEMES, type Theme } from '@/lib/theme';
-import { setColorOverrides, type ColorOverrides, type ThemeOverrides } from '@/lib/colorOverrides';
+import {
+  normaliseTree,
+  PREVIEW_MESSAGE,
+  PREVIEW_READY,
+  PREVIEW_SCROLL,
+  STATIC_TREE as SITE_STATIC_TREE,
+  type ContentTree,
+} from '@/lib/useContent';
+import { BASE, type ColorOverrides } from '@/lib/colorOverrides';
 
 /**
  * Admin.
  *
- * A whole-content editor over four entity types: projects, roles,
- * achievements, and the profile singleton. Every change flows straight into
+ * A whole-content editor: projects, roles, achievements, the profile, the
+ * About copy and education, skills and the stack strips, the headline
+ * numbers and the Ask AI suggested questions. Every change flows straight into
  * the live site because the marketing routes read the same /api/content
  * endpoint the panel writes.
  *
@@ -41,36 +49,19 @@ import { setColorOverrides, type ColorOverrides, type ThemeOverrides } from '@/l
  * Save-atomicity is trivial because PUT replaces the whole tree in one file
  * write; there are no partial updates to race with each other.
  *
- * Deploy note: this all lives on the backend's filesystem. On any host with
- * real disk (VPS, Render, Fly, Docker) it persists. On Vercel serverless it
- * resets on every cold start, which is why the Export tab still exists — it
- * spits out the projects slice as ready-to-paste content.ts source, which is
- * the durable path.
+ * Deploy note: the backend stores the tree in Upstash Redis when its
+ * UPSTASH_REDIS_REST_URL / _TOKEN env vars are set (works on Vercel), and in
+ * a content.json file otherwise — which only persists on a host with a real
+ * disk (VPS, Render, Fly, Docker). See backend/admin.py. The Export tab
+ * remains as a way to bake projects into content.ts permanently.
  */
 
-type Tree = {
-  profile: Profile;
-  roles: Role[];
-  projects: Project[];
-  achievements: Achievement[];
-  colors?: ColorOverrides;
-};
+type Tree = ContentTree;
 
 const API = import.meta.env.VITE_API_URL ?? '';
 const TOKEN_KEY = 'ishant:admin-token';
 
-const STATIC_TREE: Tree = {
-  profile: staticProfile,
-  roles: staticRoles,
-  projects: staticProjects,
-  achievements: staticAchievements,
-  colors: {},
-};
-
-/** Lazy — Constellation drags in three.js; not in the initial admin bundle. */
-const Constellation = lazy(() =>
-  import('@/components/graph/Constellation').then((m) => ({ default: m.Constellation })),
-);
+const STATIC_TREE: Tree = { ...SITE_STATIC_TREE, colors: {} };
 
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -183,7 +174,17 @@ function SignIn({ onToken }: { onToken: (t: string) => void }) {
 
 /* ── panel ───────────────────────────────────────────────────────────────── */
 
-type Tab = 'projects' | 'roles' | 'achievements' | 'profile' | 'colors' | 'preview' | 'export';
+type Tab =
+  | 'projects'
+  | 'roles'
+  | 'achievements'
+  | 'profile'
+  | 'about'
+  | 'skills'
+  | 'extras'
+  | 'colors'
+  | 'preview'
+  | 'export';
 
 function Panel({ token, onExpired }: { token: string; onExpired: () => void }) {
   const [tab, setTab] = useState<Tab>('projects');
@@ -193,7 +194,6 @@ function Panel({ token, onExpired }: { token: string; onExpired: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState('');
-  const [previewKey, setPreviewKey] = useState(0);
 
   const auth = { authorization: `Bearer ${token}` };
 
@@ -244,12 +244,6 @@ function Panel({ token, onExpired }: { token: string; onExpired: () => void }) {
     load();
   }, [load]);
 
-  /* Live preview: every edit on the Colors tab pushes straight to the
-     runtime overrides store so the graph and glass cards update immediately,
-     without waiting for Save. */
-  useEffect(() => {
-    if (tree) setColorOverrides(tree.colors ?? {});
-  }, [tree]);
 
   /** PUT the whole tree. Deliberately atomic — see the file header. */
   const save = useCallback(async () => {
@@ -264,7 +258,6 @@ function Panel({ token, onExpired }: { token: string; onExpired: () => void }) {
       });
       setDirty(false);
       setNote('Saved. The live site reflects this on the next page load.');
-      setPreviewKey((k) => k + 1);
       const exported = await call('/api/admin/export').catch(() => ({ code: '' }));
       setCode(exported.code ?? '');
     } catch (err) {
@@ -286,8 +279,11 @@ function Panel({ token, onExpired }: { token: string; onExpired: () => void }) {
       { id: 'roles', label: `Roles (${tree?.roles.length ?? 0})` },
       { id: 'achievements', label: `Achievements (${tree?.achievements.length ?? 0})` },
       { id: 'profile', label: 'Profile' },
+      { id: 'about', label: 'About & education' },
+      { id: 'skills', label: 'Skills & stack' },
+      { id: 'extras', label: 'Numbers & questions' },
       { id: 'colors', label: 'Colors' },
-      { id: 'preview', label: 'Preview graph' },
+      { id: 'preview', label: 'Live preview' },
       { id: 'export', label: 'Export' },
     ],
     [tree],
@@ -379,31 +375,52 @@ function Panel({ token, onExpired }: { token: string; onExpired: () => void }) {
             onChange={(profile) => patch((t) => ({ ...t, profile }))}
           />
         )}
+        {tab === 'about' && (
+          <AboutTab
+            about={tree.about}
+            education={tree.education}
+            onAbout={(about) => patch((t) => ({ ...t, about }))}
+            onEducation={(education) => patch((t) => ({ ...t, education }))}
+          />
+        )}
+        {tab === 'skills' && (
+          <SkillsTab
+            skills={tree.skills}
+            stack={tree.stack}
+            onSkills={(skills) => patch((t) => ({ ...t, skills }))}
+            onStack={(stack) => patch((t) => ({ ...t, stack }))}
+          />
+        )}
+        {tab === 'extras' && (
+          <ExtrasTab
+            metrics={tree.metrics}
+            questions={tree.questions}
+            onMetrics={(metrics) => patch((t) => ({ ...t, metrics }))}
+            onQuestions={(questions) => patch((t) => ({ ...t, questions }))}
+          />
+        )}
         {tab === 'colors' && (
           <ColorsTab
             colors={tree.colors ?? {}}
+            tree={tree}
             onChange={(colors) => patch((t) => ({ ...t, colors }))}
           />
         )}
-        {tab === 'preview' && <PreviewGraph key={previewKey} projects={tree.projects} />}
+        {tab === 'preview' && <LivePreview tree={tree} />}
         {tab === 'export' && <ExportTab code={code} />}
       </div>
     </main>
   );
 }
 
-/** Backfills any list keys the backend may have dropped, so tabs never blank out on load. */
+/**
+ * Backfills anything the stored tree is missing — including whole sections
+ * from before the panel could edit them — from the compiled content, using
+ * the same rules as the live site (see normaliseTree in useContent.ts).
+ */
 function mergeWithStaticShape(raw: unknown): Tree {
-  const t = (raw as Partial<Tree>) ?? {};
-  return {
-    profile: (t.profile as Profile) ?? staticProfile,
-    roles: Array.isArray(t.roles) ? (t.roles as Role[]) : staticRoles,
-    projects: Array.isArray(t.projects) ? (t.projects as Project[]) : staticProjects,
-    achievements: Array.isArray(t.achievements)
-      ? (t.achievements as Achievement[])
-      : staticAchievements,
-    colors: (t.colors as ColorOverrides) ?? {},
-  };
+  const t = normaliseTree(raw) ?? STATIC_TREE;
+  return { ...t, colors: t.colors ?? {} };
 }
 
 /* ── projects tab ────────────────────────────────────────────────────────── */
@@ -536,21 +553,35 @@ function ProjectForm({
         <Field label="Outcome" area value={project.outcome ?? ''} onChange={(outcome) => set({ outcome })} />
       </div>
       <div className="mt-[12px] grid gap-[12px] sm:grid-cols-2">
-        <Field
+        <ListField
           label="Tech"
           hint="Comma separated. Each becomes a node in the graph."
-          value={project.tech.join(', ')}
-          onChange={(v) => set({ tech: splitList(v) })}
+          value={project.tech}
+          onChange={(tech) => set({ tech })}
           placeholder="Python, PyTorch"
         />
-        <Field
+        <ListField
           label="Domains"
           hint="Comma separated. Reuse existing ones to link projects together."
-          value={project.domains.join(', ')}
-          onChange={(v) => set({ domains: splitList(v) })}
+          value={project.domains}
+          onChange={(domains) => set({ domains })}
           placeholder="Computer vision, RAG"
         />
       </div>
+      <ParagraphsField
+        className="mt-[12px]"
+        label="More detail"
+        hint="Extra paragraphs in the project panel. Leave a blank line between paragraphs."
+        value={project.detail ?? []}
+        onChange={(detail) => set({ detail: detail.length ? detail : undefined })}
+      />
+      <LinksField
+        className="mt-[12px]"
+        label="Links"
+        hint="One per line: Label | https://url"
+        value={project.links ?? []}
+        onChange={(links) => set({ links: links.length ? links : undefined })}
+      />
 
       <label className="mt-[18px] flex items-center gap-[10px] text-mist">
         <input
@@ -740,12 +771,14 @@ function AchievementsTab({
     const draft: Achievement = { ...EMPTY_ACHIEVEMENT, slug: `new-${Date.now().toString(36)}` };
     onChange([draft, ...achievements]);
   };
-  const remove = (slug: string) => {
+  // By index, not slug: editing the Slug field used to change the key on
+  // every keystroke, remounting the card and dropping the cursor.
+  const remove = (index: number) => {
     if (!confirm('Remove this achievement?')) return;
-    onChange(achievements.filter((a) => a.slug !== slug));
+    onChange(achievements.filter((_, i) => i !== index));
   };
-  const update = (slug: string, patch: Partial<Achievement>) =>
-    onChange(achievements.map((a) => (a.slug === slug ? { ...a, ...patch } : a)));
+  const update = (index: number, patch: Partial<Achievement>) =>
+    onChange(achievements.map((a, i) => (i === index ? { ...a, ...patch } : a)));
 
   return (
     <div className="max-w-[860px]">
@@ -753,24 +786,24 @@ function AchievementsTab({
         Add achievement
       </button>
       <div className="space-y-[24px]">
-        {achievements.map((a) => (
-          <div key={a.slug} className="glass-card glass-achievement rounded-[18px] p-[18px]">
+        {achievements.map((a, i) => (
+          <div key={i} className="glass-card glass-achievement rounded-[18px] p-[18px]">
             <div className="grid gap-[12px] sm:grid-cols-2">
-              <Field label="Slug" value={a.slug} onChange={(slug) => update(a.slug, { slug })} />
-              <Field label="Name" value={a.name} onChange={(name) => update(a.slug, { name })} />
+              <Field label="Slug" value={a.slug} onChange={(slug) => update(i, { slug })} />
+              <Field label="Name" value={a.name} onChange={(name) => update(i, { name })} />
             </div>
             <Field
               className="mt-[12px]"
               label="Detail"
               area
               value={a.detail}
-              onChange={(detail) => update(a.slug, { detail })}
+              onChange={(detail) => update(i, { detail })}
             />
             <div className="mt-[12px]">
               <label className="t-caption block text-ash">Linked project (optional)</label>
               <select
                 value={a.project ?? ''}
-                onChange={(e) => update(a.slug, { project: e.target.value || undefined })}
+                onChange={(e) => update(i, { project: e.target.value || undefined })}
                 className="mt-[6px] w-full rounded-[18px] border border-ash/20 bg-transparent px-[16px] py-[12px] t-body text-bone outline-none focus:border-iris"
               >
                 <option value="">— none —</option>
@@ -784,7 +817,7 @@ function AchievementsTab({
             <div className="mt-[12px]">
               <button
                 type="button"
-                onClick={() => remove(a.slug)}
+                onClick={() => remove(i)}
                 className="tag hover:!text-saffron"
               >
                 Remove
@@ -814,8 +847,8 @@ function ProfileTab({
   return (
     <div className="max-w-[720px]">
       <p className="t-body mb-[24px] text-mist">
-        The header, hero and footer all read from this. Changes are live everywhere on next page
-        load.
+        The header, hero, contact section, footer and the Ask AI chat all read from this.
+        Changes are live everywhere on the next page load.
       </p>
 
       <div className="grid gap-[12px] sm:grid-cols-2">
@@ -865,188 +898,584 @@ function ProfileTab({
   );
 }
 
-/* ── colors tab ──────────────────────────────────────────────────────────── */
+/* ── about & education tab ───────────────────────────────────────────────── */
 
-const NODE_FIELDS: Array<{ key: keyof NonNullable<ThemeOverrides['graph']> & string; label: string; hint: string }> = [
-  { key: 'person', label: 'Main node (you)', hint: 'The queen-bee node at the centre of the graph.' },
-  { key: 'role', label: 'Role node', hint: 'Where you worked — the hub nodes one ring out.' },
-  { key: 'project', label: 'Project node', hint: 'Each shipped project.' },
-  { key: 'domain', label: 'Domain node', hint: 'Problem domains — computer vision, RAG, etc.' },
-  { key: 'tech', label: 'Tech node', hint: 'Individual tools and frameworks.' },
-  { key: 'achievement', label: 'Achievement node', hint: 'Recognitions and awards.' },
-  { key: 'link', label: 'Connecting lines', hint: 'The threads between nodes.' },
-];
+const EMPTY_EDUCATION: Education = { qualification: '', institution: '', period: '', result: '' };
 
-const CARD_FIELDS: Array<{ key: keyof NonNullable<ThemeOverrides['cards']> & string; label: string; hint: string }> = [
-  { key: 'base', label: 'General card', hint: 'Ask AI, About, Contact, admin panels — everything without a more specific kind.' },
-  { key: 'project', label: 'Project card', hint: 'Project detail cards, the graph readout when a project is selected.' },
-  { key: 'tech', label: 'Tech / domain card', hint: 'Technology and domain readouts.' },
-  { key: 'role', label: 'Role card', hint: 'Role detail cards.' },
-  { key: 'achievement', label: 'Achievement card', hint: 'Achievement rows and readouts.' },
-];
-
-function ColorsTab({
-  colors,
-  onChange,
+function AboutTab({
+  about,
+  education,
+  onAbout,
+  onEducation,
 }: {
-  colors: ColorOverrides;
-  onChange: (c: ColorOverrides) => void;
+  about: string[];
+  education: Education[];
+  onAbout: (a: string[]) => void;
+  onEducation: (e: Education[]) => void;
 }) {
-  const [theme, setTheme] = useState<Theme>('dark');
-  const defaults = THEMES[theme];
-  const overrides: ThemeOverrides = colors[theme] ?? {};
-
-  const setGraph = (key: string, value: string | undefined) => {
-    const nextGraph = { ...overrides.graph };
-    if (value) nextGraph[key as keyof typeof nextGraph] = value;
-    else delete nextGraph[key as keyof typeof nextGraph];
-    onChange({ ...colors, [theme]: { ...overrides, graph: nextGraph } });
-  };
-
-  const setCard = (key: string, value: string | undefined) => {
-    const nextCards = { ...overrides.cards };
-    if (value) nextCards[key as keyof typeof nextCards] = value;
-    else delete nextCards[key as keyof typeof nextCards];
-    onChange({ ...colors, [theme]: { ...overrides, cards: nextCards } });
-  };
-
-  const setLinkWidth = (value: number | undefined) => {
-    const next = { ...overrides, linkWidth: value };
-    if (value === undefined) delete next.linkWidth;
-    onChange({ ...colors, [theme]: next });
-  };
-
-  const resetTheme = () => {
-    if (!confirm(`Reset every ${theme}-mode color to its default?`)) return;
-    onChange({ ...colors, [theme]: {} });
+  const update = (index: number, patch: Partial<Education>) =>
+    onEducation(education.map((e, i) => (i === index ? { ...e, ...patch } : e)));
+  const remove = (index: number) => {
+    if (!confirm('Remove this education entry?')) return;
+    onEducation(education.filter((_, i) => i !== index));
   };
 
   return (
-    <div className="max-w-[900px]">
-      <p className="t-body mb-[18px] text-mist">
-        Pick a color and it takes effect immediately, everywhere — the graph, the liquid-glass
-        cards, all of it — before you even hit Save. Save writes it for every visitor; leaving
-        without saving reverts to the defaults below on the next load.
-      </p>
+    <div className="max-w-[860px] space-y-[48px]">
+      <section>
+        <h2 className="t-heading-2xs text-bone">About</h2>
+        <ParagraphsField
+          className="mt-[12px]"
+          label="About paragraphs"
+          hint="The About section. Leave a blank line between paragraphs."
+          rows={8}
+          value={about}
+          onChange={onAbout}
+        />
+      </section>
 
-      <div className="mb-[24px] flex items-center gap-[18px]">
-        <div className="inline-flex overflow-hidden rounded-full border border-ash/25">
-          {(['dark', 'light'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTheme(t)}
-              aria-pressed={theme === t}
-              className={`t-nav px-[18px] py-[8px] transition-colors ${
-                theme === t ? 'bg-iris text-white' : 'text-ash hover:text-bone'
-              }`}
-            >
-              {t === 'dark' ? 'Dark mode' : 'Light mode'}
-            </button>
+      <section>
+        <div className="flex items-center justify-between">
+          <h2 className="t-heading-2xs text-bone">Education</h2>
+          <button
+            type="button"
+            onClick={() => onEducation([...education, { ...EMPTY_EDUCATION }])}
+            className="pill !py-[8px] !px-[18px]"
+          >
+            Add education
+          </button>
+        </div>
+        <div className="mt-[18px] space-y-[18px]">
+          {education.map((e, i) => (
+            <div key={i} className="glass-card rounded-[18px] p-[18px]">
+              <div className="grid gap-[12px] sm:grid-cols-2">
+                <Field
+                  label="Qualification"
+                  value={e.qualification}
+                  onChange={(qualification) => update(i, { qualification })}
+                  placeholder="B.Tech, AI & ML"
+                />
+                <Field
+                  label="Institution"
+                  value={e.institution}
+                  onChange={(institution) => update(i, { institution })}
+                />
+                <Field
+                  label="Period"
+                  value={e.period}
+                  onChange={(period) => update(i, { period })}
+                  placeholder="2021–2025"
+                />
+                <Field
+                  label="Result"
+                  value={e.result}
+                  onChange={(result) => update(i, { result })}
+                  placeholder="CGPA 7.3/10"
+                />
+              </div>
+              <RowActions
+                index={i}
+                count={education.length}
+                onMove={(to) => onEducation(move(education, i, to))}
+                onRemove={() => remove(i)}
+              />
+            </div>
+          ))}
+          {education.length === 0 && <p className="t-body text-ash">No education entries.</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ── skills & stack tab ──────────────────────────────────────────────────── */
+
+function SkillsTab({
+  skills,
+  stack,
+  onSkills,
+  onStack,
+}: {
+  skills: Record<string, string[]>;
+  stack: StackRow[];
+  onSkills: (s: Record<string, string[]>) => void;
+  onStack: (s: StackRow[]) => void;
+}) {
+  // Skills are stored as { group: items }, edited as an ordered list so a
+  // group can be renamed in place without jumping to the end.
+  const groups = Object.entries(skills);
+  const setGroups = (next: [string, string[]][]) => onSkills(Object.fromEntries(next));
+  const updateGroup = (index: number, name: string, items: string[]) =>
+    setGroups(groups.map((g, i) => (i === index ? [name, items] : g)));
+
+  const updateRow = (index: number, patch: Partial<StackRow>) =>
+    onStack(stack.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+
+  return (
+    <div className="max-w-[860px] space-y-[48px]">
+      <section>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="t-heading-2xs text-bone">Skills</h2>
+            <p className="t-caption mt-[2px] text-ash">The grouped list beside the About text.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setGroups([...groups, [`New group ${groups.length + 1}`, []]])}
+            className="pill !py-[8px] !px-[18px]"
+          >
+            Add group
+          </button>
+        </div>
+        <div className="mt-[18px] space-y-[18px]">
+          {groups.map(([name, items], i) => (
+            <div key={i} className="glass-card glass-tech rounded-[18px] p-[18px]">
+              <Field label="Group" value={name} onChange={(n) => updateGroup(i, n, items)} />
+              <ListField
+                className="mt-[12px]"
+                label="Skills"
+                hint="Comma separated."
+                value={items}
+                onChange={(next) => updateGroup(i, name, next)}
+              />
+              <RowActions
+                index={i}
+                count={groups.length}
+                onMove={(to) => setGroups(move(groups, i, to))}
+                onRemove={() => {
+                  if (confirm(`Remove the "${name}" group?`)) setGroups(groups.filter((_, j) => j !== i));
+                }}
+              />
+            </div>
           ))}
         </div>
-        <button type="button" onClick={resetTheme} className="ghost">
-          Reset {theme} to defaults
-        </button>
-      </div>
+      </section>
 
-      <div className="glass-card glass-project mb-[36px] rounded-[24px] p-[24px]">
-        <h3 className="t-heading-2xs mb-[4px] text-bone">Node colors</h3>
-        <p className="t-caption mb-[18px] text-ash">
-          Each kind of node in the constellation graph.
-        </p>
-        <div className="grid gap-[18px] sm:grid-cols-2">
-          {NODE_FIELDS.map((f) => (
+      <section>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="t-heading-2xs text-bone">Stack strips</h2>
+            <p className="t-caption mt-[2px] text-ash">
+              The scrolling logo rows. A name with a known logo shows the logo; others show as text.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onStack([...stack, { label: 'New row', items: [] }])}
+            className="pill !py-[8px] !px-[18px]"
+          >
+            Add row
+          </button>
+        </div>
+        <div className="mt-[18px] space-y-[18px]">
+          {stack.map((r, i) => (
+            <div key={i} className="glass-card glass-tech rounded-[18px] p-[18px]">
+              <Field label="Row label" value={r.label} onChange={(label) => updateRow(i, { label })} />
+              <ListField
+                className="mt-[12px]"
+                label="Items"
+                hint="Comma separated."
+                value={r.items}
+                onChange={(items) => updateRow(i, { items })}
+              />
+              <RowActions
+                index={i}
+                count={stack.length}
+                onMove={(to) => onStack(move(stack, i, to))}
+                onRemove={() => {
+                  if (confirm(`Remove the "${r.label}" row?`)) onStack(stack.filter((_, j) => j !== i));
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ── numbers & questions tab ─────────────────────────────────────────────── */
+
+function ExtrasTab({
+  metrics,
+  questions,
+  onMetrics,
+  onQuestions,
+}: {
+  metrics: Metric[];
+  questions: string[];
+  onMetrics: (m: Metric[]) => void;
+  onQuestions: (q: string[]) => void;
+}) {
+  const update = (index: number, patch: Partial<Metric>) =>
+    onMetrics(metrics.map((m, i) => (i === index ? { ...m, ...patch } : m)));
+
+  return (
+    <div className="max-w-[860px] space-y-[48px]">
+      <section>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="t-heading-2xs text-bone">Headline numbers</h2>
+            <p className="t-caption mt-[2px] text-ash">
+              The big flip-counter numbers in the opening scroll. Four fit one row on desktop.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onMetrics([...metrics, { value: '', label: '' }])}
+            className="pill !py-[8px] !px-[18px]"
+          >
+            Add number
+          </button>
+        </div>
+        <div className="mt-[18px] space-y-[18px]">
+          {metrics.map((m, i) => (
+            <div key={i} className="glass-card rounded-[18px] p-[18px]">
+              <div className="grid gap-[12px] sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                <Field label="Number" value={m.value} onChange={(value) => update(i, { value })} placeholder="25" />
+                <Field
+                  label="Label"
+                  value={m.label}
+                  onChange={(label) => update(i, { label })}
+                  placeholder="systems shipped"
+                />
+              </div>
+              <RowActions
+                index={i}
+                count={metrics.length}
+                onMove={(to) => onMetrics(move(metrics, i, to))}
+                onRemove={() => onMetrics(metrics.filter((_, j) => j !== i))}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="t-heading-2xs text-bone">Ask AI suggestions</h2>
+        <LinesField
+          className="mt-[12px]"
+          label="Suggested questions"
+          hint="One per line. They rotate in the Ask AI box as hints."
+          rows={6}
+          value={questions}
+          onChange={onQuestions}
+        />
+      </section>
+    </div>
+  );
+}
+
+/** Move up / down / remove, under each card in the list editors. */
+function RowActions({
+  index,
+  count,
+  onMove,
+  onRemove,
+}: {
+  index: number;
+  count: number;
+  onMove: (to: number) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="mt-[12px] flex gap-[18px]">
+      <button
+        type="button"
+        disabled={index === 0}
+        onClick={() => onMove(index - 1)}
+        className="tag hover:!text-bone disabled:opacity-30"
+      >
+        Move up
+      </button>
+      <button
+        type="button"
+        disabled={index === count - 1}
+        onClick={() => onMove(index + 1)}
+        className="tag hover:!text-bone disabled:opacity-30"
+      >
+        Move down
+      </button>
+      <button type="button" onClick={onRemove} className="tag hover:!text-saffron">
+        Remove
+      </button>
+    </div>
+  );
+}
+
+function move<T>(arr: T[], from: number, to: number): T[] {
+  if (to < 0 || to >= arr.length) return arr;
+  const next = arr.slice();
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
+}
+
+/* ── colors tab ──────────────────────────────────────────────────────────── */
+
+/*
+ * One colour set — the site is night only now, so the old dark/light split is
+ * gone. Every field shows the colour the live homepage is using right now
+ * (your saved override, or the built-in default) and changes it in the live
+ * preview beside it as you edit. Nothing reaches visitors until Save.
+ */
+
+type Section = 'page' | 'sky' | 'galaxy' | 'graph' | 'cards';
+type ColorDef = { key: string; label: string; hint?: string };
+
+const PAGE_FIELDS: ColorDef[] = [
+  { key: 'surface', label: 'Page background', hint: 'Behind everything. Also the nav bar and the browser tab colour.' },
+  { key: 'surfaceRaised', label: 'Cards & panels', hint: 'The project panel, menus and raised boxes.' },
+  { key: 'text', label: 'Headings', hint: 'Your name, section titles, project names.' },
+  { key: 'textBody', label: 'Body text', hint: 'Paragraphs.' },
+  { key: 'textMuted', label: 'Muted text', hint: 'Captions, labels, nav links.' },
+  { key: 'accent', label: 'Accent', hint: 'Buttons, the timeline line and dots, text selection.' },
+  { key: 'accentHover', label: 'Accent hover', hint: 'Buttons under the cursor.' },
+  { key: 'accentInk', label: 'Text on accent', hint: 'Button labels.' },
+  { key: 'emphasis', label: 'Highlight', hint: 'Years, links and small labels (the amber).' },
+  { key: 'hairline', label: 'Lines & borders', hint: 'Dividers and card edges. Keeps its transparency.' },
+];
+
+const SKY_FIELDS: ColorDef[] = [
+  { key: 'center', label: 'Sky centre', hint: 'The backdrop is lightest in the middle of the screen…' },
+  { key: 'mid', label: 'Sky middle' },
+  { key: 'edge', label: 'Sky edges', hint: '…and darkest at the corners.' },
+  { key: 'star', label: 'Faint stars', hint: 'Most of the small background stars.' },
+  { key: 'bright', label: 'Bright stars', hint: 'The few large glowing ones.' },
+];
+
+const GALAXY_FIELDS: ColorDef[] = [
+  { key: 'core', label: 'Core', hint: 'The white-hot centre of the hero galaxy.' },
+  { key: 'bulge', label: 'Core glow' },
+  { key: 'innerArm', label: 'Inner arms', hint: 'Warm part of the arms near the centre.' },
+  { key: 'arm', label: 'Outer arms' },
+  { key: 'armB', label: 'Outer arms, second tone' },
+  { key: 'haze', label: 'Haze', hint: 'The faint dust between the arms.' },
+  { key: 'knot', label: 'Bright knots', hint: 'The small pink spots along the arms.' },
+];
+
+const NODE_FIELDS: ColorDef[] = [
+  { key: 'person', label: 'You', hint: 'The centre node.' },
+  { key: 'role', label: 'Jobs' },
+  { key: 'project', label: 'Projects' },
+  { key: 'domain', label: 'Domains' },
+  { key: 'tech', label: 'Tech' },
+  { key: 'achievement', label: 'Achievements' },
+  { key: 'link', label: 'Lines between nodes' },
+];
+
+const CARD_FIELDS: ColorDef[] = [
+  { key: 'base', label: 'General', hint: 'Tint of the glass cards (node info card, Proof cards).' },
+  { key: 'project', label: 'Project cards' },
+  { key: 'tech', label: 'Tech cards' },
+  { key: 'role', label: 'Job cards' },
+  { key: 'achievement', label: 'Achievement cards' },
+];
+
+const PAGE_DEFAULTS = BASE as unknown as Record<string, string>;
+const DEFAULTS: Record<Section, Record<string, string>> = {
+  page: PAGE_DEFAULTS,
+  sky: BASE.sky as unknown as Record<string, string>,
+  galaxy: BASE.galaxy as unknown as Record<string, string>,
+  graph: BASE.graph as unknown as Record<string, string>,
+  cards: BASE.cardTints as unknown as Record<string, string>,
+};
+
+function ColorsTab({
+  colors,
+  tree,
+  onChange,
+}: {
+  colors: ColorOverrides;
+  tree: Tree;
+  onChange: (c: ColorOverrides) => void;
+}) {
+  const valueOf = (section: Section, key: string) =>
+    (colors[section] as Record<string, string> | undefined)?.[key] ?? DEFAULTS[section][key];
+  const isSet = (section: Section, key: string) =>
+    (colors[section] as Record<string, string> | undefined)?.[key] !== undefined;
+
+  const set = (section: Section, key: string, value: string | undefined) => {
+    const next = { ...((colors[section] as Record<string, string>) ?? {}) };
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+    const out: ColorOverrides = { ...colors, [section]: next };
+    if (!Object.keys(next).length) delete (out as Record<string, unknown>)[section];
+    onChange(out);
+  };
+
+  const setList = (which: 'dust' | 'ambient', index: number, value: string | undefined) => {
+    const base = BASE.graph[which];
+    const list = (colors[which] ?? base).slice();
+    list[index] = value ?? base[index];
+    const out: ColorOverrides = { ...colors, [which]: list };
+    if (list.every((c, i) => c === base[i])) delete out[which];
+    onChange(out);
+  };
+
+  const group = (title: string, note: string, section: Section, defs: ColorDef[]) => (
+    <section>
+      <h2 className="t-heading-2xs text-bone">{title}</h2>
+      <p className="t-caption mt-[2px] text-ash">{note}</p>
+      <div className="mt-[16px] grid gap-[18px] sm:grid-cols-2">
+        {defs.map((d) => (
+          <ColorField
+            key={d.key}
+            label={d.label}
+            hint={d.hint}
+            value={valueOf(section, d.key)}
+            fallback={DEFAULTS[section][d.key]}
+            isDefault={!isSet(section, d.key)}
+            onChange={(v) => set(section, d.key, v)}
+            onReset={() => set(section, d.key, undefined)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+
+  const swatches = (title: string, note: string, which: 'dust' | 'ambient') => {
+    const list = colors[which] ?? BASE.graph[which];
+    return (
+      <section>
+        <h2 className="t-heading-2xs text-bone">{title}</h2>
+        <p className="t-caption mt-[2px] text-ash">{note}</p>
+        <div className="mt-[16px] grid gap-[18px] sm:grid-cols-2">
+          {list.map((c, i) => (
             <ColorField
-              key={f.key}
-              label={f.label}
-              hint={f.hint}
-              value={overrides.graph?.[f.key] ?? defaults.graph[f.key]}
-              isDefault={!overrides.graph?.[f.key]}
-              onChange={(v) => setGraph(f.key, v)}
-              onReset={() => setGraph(f.key, undefined)}
+              key={i}
+              label={`Colour ${i + 1}`}
+              value={c}
+              fallback={BASE.graph[which][i]}
+              isDefault={c === BASE.graph[which][i]}
+              onChange={(v) => setList(which, i, v)}
+              onReset={() => setList(which, i, undefined)}
             />
           ))}
         </div>
+      </section>
+    );
+  };
 
-        <div className="mt-[24px] border-t border-ash/15 pt-[18px]">
-          <div className="flex flex-wrap items-center justify-between gap-x-[18px] gap-y-[4px]">
-            <div>
-              <p className="t-body text-bone">Connecting line thickness</p>
-              <p className="t-caption text-ash">
-                The threads between nodes. Open this and drag whenever you want them bolder for a
-                demo, thinner otherwise.
-              </p>
-            </div>
-            {overrides.linkWidth !== undefined && (
-              <button
-                type="button"
-                onClick={() => setLinkWidth(undefined)}
-                className="t-caption text-ash underline hover:text-bone"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-          <div className="mt-[12px] flex items-center gap-[14px]">
+  const linkWidth = colors.linkWidth ?? BASE.graph.linkWidth;
+  const changed = Object.keys(colors).length > 0;
+
+  return (
+    <div className="grid gap-[36px] xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+      <div className="space-y-[42px]">
+        <div className="flex flex-wrap items-center justify-between gap-[12px]">
+          <p className="t-body max-w-[52ch] text-mist">
+            These are the colours on the homepage right now. Change any of them and the preview
+            updates as you go. Visitors see it after <span className="text-bone">Save everything</span>.
+          </p>
+          {changed && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('Put every colour back to the built-in defaults?')) onChange({});
+              }}
+              className="ghost"
+            >
+              Reset all colours
+            </button>
+          )}
+        </div>
+
+        {group('Page', 'Text, buttons and surfaces.', 'page', PAGE_FIELDS)}
+        {group('Night sky', 'The fixed starry backdrop behind every section.', 'sky', SKY_FIELDS)}
+        {group('Galaxy', 'The spiral galaxy the page opens on.', 'galaxy', GALAXY_FIELDS)}
+
+        <section>
+          {group('Graph nodes', 'The dots of the knowledge graph, by kind.', 'graph', NODE_FIELDS)}
+          <div className="mt-[18px] max-w-[420px]">
+            <label className="t-caption flex items-center justify-between text-ash">
+              <span>Line thickness</span>
+              <span className="font-mono text-mist">{linkWidth.toFixed(2)}</span>
+            </label>
             <input
               type="range"
-              min={0.05}
-              max={3}
+              min={0}
+              max={2}
               step={0.05}
-              value={overrides.linkWidth ?? defaults.graph.linkWidth}
-              onChange={(e) => setLinkWidth(Number(e.target.value))}
-              className="h-[4px] w-full max-w-[320px] flex-1 cursor-pointer accent-iris"
+              value={linkWidth}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                const out: ColorOverrides = { ...colors, linkWidth: v };
+                if (v === BASE.graph.linkWidth) delete out.linkWidth;
+                onChange(out);
+              }}
+              className="mt-[8px] w-full accent-iris"
             />
-            <span className="t-caption w-[40px] text-right font-mono text-mist">
-              {(overrides.linkWidth ?? defaults.graph.linkWidth).toFixed(2)}
-            </span>
           </div>
-        </div>
+        </section>
+
+        {swatches('Sculpture dust', 'The particles the galaxy and the shapes (constellation, eye, butterfly…) are made of.', 'dust')}
+        {swatches('Drifting particles', 'The slow motes floating behind the page.', 'ambient')}
+        {group('Info cards', 'Glass card tints.', 'cards', CARD_FIELDS)}
       </div>
 
-      <div className="glass-card glass-achievement rounded-[24px] p-[24px]">
-        <h3 className="t-heading-2xs mb-[4px] text-bone">Card colors</h3>
-        <p className="t-caption mb-[18px] text-ash">
-          The tint each liquid-glass card's frosted background and border are derived from.
-        </p>
-        <div className="grid gap-[18px] sm:grid-cols-2">
-          {CARD_FIELDS.map((f) => (
-            <ColorField
-              key={f.key}
-              label={f.label}
-              hint={f.hint}
-              value={overrides.cards?.[f.key] ?? defaults.cardTints[f.key]}
-              isDefault={!overrides.cards?.[f.key]}
-              onChange={(v) => setCard(f.key, v)}
-              onReset={() => setCard(f.key, undefined)}
-            />
-          ))}
-        </div>
+      <div className="xl:sticky xl:top-[120px] xl:self-start">
+        <LivePreview tree={tree} compact />
       </div>
     </div>
   );
+}
+
+const HEX6 = /^#[0-9a-f]{6}$/i;
+
+/** '#rrggbb' for the native picker, from a hex or an rgb()/rgba() string. */
+function toPickerHex(value: string): string {
+  if (HEX6.test(value)) return value.toLowerCase();
+  const m = value.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (!m) return '#000000';
+  return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** The alpha of an rgba() string, or null. Used to keep a translucent default translucent. */
+function alphaOf(value: string): number | null {
+  const m = value.match(/rgba\([^)]*,\s*([\d.]+)\s*\)/i);
+  return m ? Number(m[1]) : null;
 }
 
 function ColorField({
   label,
   hint,
   value,
+  fallback,
   isDefault,
   onChange,
   onReset,
 }: {
   label: string;
-  hint: string;
+  hint?: string;
   value: string;
+  /** The built-in default, used to keep its transparency when a new colour is picked. */
+  fallback: string;
   isDefault: boolean;
   onChange: (v: string) => void;
   onReset: () => void;
 }) {
-  const id = `color-${label.toLowerCase().replace(/\s+/g, '-')}`;
+  const id = useId();
+  // Typed text is held locally and only committed once it is a valid colour,
+  // so half-typed hex ("#8f6") never reaches the preview or the save.
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+
+  const alpha = alphaOf(fallback);
+  const fromPicker = (hex: string) => {
+    if (alpha === null) return hex;
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  };
+  const commitText = (t: string) => {
+    setText(t);
+    const v = t.trim();
+    if (HEX6.test(v) || /^rgba?\([\d\s.,]+\)$/i.test(v)) onChange(v);
+  };
+
   return (
     <div className="flex items-start gap-[12px]">
-      <label htmlFor={id} className="relative mt-[2px] shrink-0 cursor-pointer">
+      <label htmlFor={id} className="relative mt-[2px] shrink-0 cursor-pointer" title="Pick a colour">
         <span
           className="block h-[36px] w-[36px] rounded-full border border-ash/30"
           style={{ background: value }}
@@ -1054,8 +1483,8 @@ function ColorField({
         <input
           id={id}
           type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          value={toPickerHex(value)}
+          onChange={(e) => onChange(fromPicker(e.target.value))}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         />
       </label>
@@ -1064,10 +1493,12 @@ function ColorField({
           <p className="t-body text-bone">{label}</p>
           <input
             type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
+            aria-label={`${label} value`}
+            value={text}
+            onChange={(e) => commitText(e.target.value)}
+            onBlur={() => setText(value)}
             spellCheck={false}
-            className="w-[92px] rounded-[8px] border border-ash/20 bg-transparent px-[8px] py-[2px] font-mono text-[12px] text-mist outline-none focus:border-iris"
+            className="w-[200px] rounded-[8px] border border-ash/20 bg-transparent px-[8px] py-[2px] font-mono text-[12px] text-mist outline-none focus:border-iris"
           />
           {!isDefault && (
             <button type="button" onClick={onReset} className="t-caption text-ash underline hover:text-bone">
@@ -1075,36 +1506,118 @@ function ColorField({
             </button>
           )}
         </div>
-        <p className="t-caption mt-[2px] text-ash">{hint}</p>
+        {hint && <p className="t-caption mt-[2px] text-ash">{hint}</p>}
       </div>
     </div>
   );
 }
 
-/* ── preview + export ────────────────────────────────────────────────────── */
+/* ── live preview ────────────────────────────────────────────────────────── */
 
-function PreviewGraph({ projects }: { projects: Project[] }) {
+const PREVIEW_W = 1440;
+const PREVIEW_H = 900;
+
+const PREVIEW_STOPS: Array<{ label: string; target: string }> = [
+  { label: 'Hero', target: 'top' },
+  { label: 'Ask AI', target: '#ask' },
+  { label: 'Proof', target: '#proof' },
+  { label: 'Work', target: '#work' },
+  { label: 'About', target: '#about' },
+  { label: 'Contact', target: '#contact' },
+];
+
+/**
+ * The real homepage in an iframe, fed the panel's UNSAVED tree — colours,
+ * projects, everything — so what you see here is exactly what Save would
+ * publish. Rendered at desktop size (1440×900) and scaled down to fit, so it
+ * shows the desktop layout rather than the phone one a narrow frame would
+ * trigger. The page itself can be scrolled inside the frame too.
+ */
+function LivePreview({ tree, compact = false }: { tree: Tree; compact?: boolean }) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.4);
+  const [ready, setReady] = useState(false);
+  const latest = useRef(tree);
+  latest.current = tree;
+
+  const post = useCallback((msg: unknown) => {
+    frameRef.current?.contentWindow?.postMessage(msg, window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const ro = new ResizeObserver(() => setScale(box.clientWidth / PREVIEW_W));
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, []);
+
+  // The frame announces itself once its content store is listening.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.source !== frameRef.current?.contentWindow) return;
+      if ((e.data as { type?: string })?.type === PREVIEW_READY) {
+        setReady(true);
+        post({ type: PREVIEW_MESSAGE, tree: latest.current });
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [post]);
+
+  // Debounced: a colour picker fires many times a second while dragging, and
+  // each galaxy colour change rebuilds the graph figures.
+  useEffect(() => {
+    if (!ready) return;
+    const t = window.setTimeout(() => post({ type: PREVIEW_MESSAGE, tree }), 180);
+    return () => window.clearTimeout(t);
+  }, [tree, ready, post]);
+
   return (
-    <div className="max-w-[1080px]">
-      <p className="t-body text-mist">
-        Same graph the marketing site uses. Reflects your current unsaved edits — projects, their
-        tech and their domains all update the graph.
-      </p>
-      <p className="t-caption mt-[6px] text-ash">{projects.length} projects total.</p>
-      <div className="glass-card glass-project mt-[24px] overflow-hidden rounded-[24px]">
-        <Suspense
-          fallback={
-            <div className="flex h-[560px] items-center justify-center">
-              <p className="t-caption text-ash">Loading the graph…</p>
-            </div>
-          }
-        >
-          <Constellation className="h-[560px] w-full" projects={projects} zoom={1.1} />
-        </Suspense>
+    <div>
+      <div className="flex flex-wrap items-center gap-x-[14px] gap-y-[6px]">
+        <span className="t-caption text-saffron">{ready ? 'Live preview' : 'Loading preview…'}</span>
+        {PREVIEW_STOPS.map((s) => (
+          <button
+            key={s.target}
+            type="button"
+            onClick={() => post({ type: PREVIEW_SCROLL, target: s.target })}
+            className="t-caption text-ash underline-offset-[3px] hover:text-bone hover:underline"
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
+      <div
+        ref={boxRef}
+        className="relative mt-[10px] w-full overflow-hidden rounded-[14px] border border-ash/20"
+        style={{ height: PREVIEW_H * scale }}
+      >
+        <iframe
+          ref={frameRef}
+          title="Live preview of the homepage"
+          src="/?preview=1"
+          style={{
+            width: PREVIEW_W,
+            height: PREVIEW_H,
+            transform: `scale(${scale})`,
+            transformOrigin: '0 0',
+            border: 0,
+          }}
+        />
+      </div>
+      {!compact && (
+        <p className="t-caption mt-[10px] text-ash">
+          Shows your unsaved edits from every tab. Scroll inside the frame, or jump with the links
+          above.
+        </p>
+      )}
     </div>
   );
 }
+
+/* ── export ────────────────────────────────────────────────────────────── */
 
 function ExportTab({ code }: { code: string }) {
   return (
@@ -1113,8 +1626,8 @@ function ExportTab({ code }: { code: string }) {
         Paste this into the <code className="text-saffron">projects</code> array in{' '}
         <code className="text-saffron">src/lib/content.ts</code>. That makes an entry permanent,
         ships it in the static bundle, and means it survives a host with an ephemeral filesystem.
-        Only the projects slice is exported — roles / achievements / profile are edited in the
-        panel and live on the backend.
+        Only the projects slice is exported — everything else is edited in the panel and lives
+        on the backend.
       </p>
       <button
         type="button"
@@ -1136,30 +1649,135 @@ function splitList(v: string): string[] {
   return v.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+/**
+ * A text field over structured data (a list, paragraphs, links). Keeps the
+ * raw text the user is typing in local state and only pushes the parsed value
+ * up — parsing on every keystroke and re-rendering from the parsed value was
+ * what made the Tech field eat each comma the moment it was typed (", " →
+ * split → trimmed away), so a second item could never be entered.
+ */
+function ParsedField<T>({
+  value,
+  onChange,
+  format,
+  parse,
+  ...field
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  format: (v: T) => string;
+  parse: (text: string) => T;
+} & FieldShared) {
+  const [text, setText] = useState(() => format(value));
+  const last = useRef(value);
+  // Re-sync only when the value changed from OUTSIDE this field (load, move).
+  useEffect(() => {
+    if (value !== last.current && JSON.stringify(parse(text)) !== JSON.stringify(value)) {
+      setText(format(value));
+    }
+    last.current = value;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <Field
+      {...field}
+      value={text}
+      onChange={(t) => {
+        setText(t);
+        const parsed = parse(t);
+        last.current = parsed;
+        onChange(parsed);
+      }}
+    />
+  );
+}
+
+type FieldShared = Omit<FieldProps, 'value' | 'onChange'>;
+
+/** Comma-separated list. */
+function ListField(props: FieldShared & { value: string[]; onChange: (v: string[]) => void }) {
+  return <ParsedField {...props} format={(v) => v.join(', ')} parse={splitList} />;
+}
+
+/** One item per line. */
+function LinesField(props: FieldShared & { value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <ParsedField
+      {...props}
+      area
+      format={(v) => v.join('\n')}
+      parse={(t) => t.split('\n').map((l) => l.trim()).filter(Boolean)}
+    />
+  );
+}
+
+/** Paragraphs separated by a blank line. */
+function ParagraphsField(props: FieldShared & { value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <ParsedField
+      rows={6}
+      {...props}
+      area
+      format={(v) => v.join('\n\n')}
+      parse={(t) => t.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)}
+    />
+  );
+}
+
+/** "Label | URL", one per line. A bare URL uses itself as the label. */
+function LinksField(
+  props: FieldShared & { value: ProjectLink[]; onChange: (v: ProjectLink[]) => void },
+) {
+  return (
+    <ParsedField
+      {...props}
+      area
+      format={(v) => v.map((l) => `${l.label} | ${l.href}`).join('\n')}
+      parse={(t) =>
+        t
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => {
+            const [label, ...rest] = line.split('|');
+            const href = rest.join('|').trim();
+            return { label: label.trim(), href: href || label.trim() };
+          })
+      }
+    />
+  );
+}
+
+type FieldProps = {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  area?: boolean;
+  rows?: number;
+  hint?: string;
+  placeholder?: string;
+  required?: boolean;
+  autoComplete?: string;
+  className?: string;
+};
+
 function Field({
   label,
   value,
   onChange,
   type = 'text',
   area = false,
+  rows = 3,
   hint,
   placeholder,
   required,
   autoComplete,
   className,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  area?: boolean;
-  hint?: string;
-  placeholder?: string;
-  required?: boolean;
-  autoComplete?: string;
-  className?: string;
-}) {
-  const id = `f-${label.toLowerCase().replace(/\s+/g, '-')}`;
+}: FieldProps) {
+  // Unique per field: label-derived ids collided as soon as a list showed
+  // two "Slug" fields, so clicking a label could focus the wrong input.
+  const id = useId();
   const shared =
     'w-full rounded-[18px] border border-ash/20 bg-transparent px-[16px] py-[12px] t-body text-bone outline-none transition-colors focus:border-iris placeholder:text-ash';
 
@@ -1182,11 +1800,11 @@ function Field({
       {area ? (
         <textarea
           id={id}
-          rows={3}
+          rows={rows}
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className={`${shared} mt-[6px] resize-none`}
+          className={`${shared} mt-[6px] resize-y`}
         />
       ) : (
         <input

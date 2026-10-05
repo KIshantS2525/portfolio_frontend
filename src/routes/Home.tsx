@@ -1,4 +1,4 @@
-// src/routes/Home.tsx
+// frontend/src/routes/Home.tsx
 import { lazy, Suspense } from 'react';
 import { StudioNav } from '@/components/studio/StudioNav';
 import { ProjectTimeline } from '@/components/work/ProjectTimeline';

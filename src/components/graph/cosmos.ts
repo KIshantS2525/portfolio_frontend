@@ -1,4 +1,4 @@
-// src/components/graph/cosmos.ts
+// frontend/src/components/graph/cosmos.ts
 /**
  * The figures of the opening journey, as point clouds.
  *
@@ -26,6 +26,7 @@
  * point, so the palette travels with the shape and is interpolated with it.
  */
 import { OUTER, type Vec3 } from '@/components/graph/shapes';
+import { THEMES } from '@/lib/theme';
 
 export type Figure = {
   /** xyz per point, world space. */
@@ -208,24 +209,40 @@ function galaxyParams(count: number, seed: number): GalaxyParams {
 
 const GALAXY_COLORS = {
   dark: {
-    core: hex('#fff4e0'),
-    bulge: hex('#ffb070'),
-    innerArm: hex('#ff9a4d'),
-    arm: hex('#5d9cff'),
-    armB: hex('#8cc6ff'),
-    haze: hex('#3a6cc4'),
-    knot: hex('#ff86c4'),
+    core: hex(THEMES.dark.galaxy.core),
+    bulge: hex(THEMES.dark.galaxy.bulge),
+    innerArm: hex(THEMES.dark.galaxy.innerArm),
+    arm: hex(THEMES.dark.galaxy.arm),
+    armB: hex(THEMES.dark.galaxy.armB),
+    haze: hex(THEMES.dark.galaxy.haze),
+    knot: hex(THEMES.dark.galaxy.knot),
   },
   light: {
-    core: hex('#a8410f'),
-    bulge: hex('#c0632a'),
-    innerArm: hex('#b86a3a'),
-    arm: hex('#3c5ea8'),
-    armB: hex('#5d77b8'),
-    haze: hex('#8b93b8'),
-    knot: hex('#b23f74'),
+    core: hex(THEMES.light.galaxy.core),
+    bulge: hex(THEMES.light.galaxy.bulge),
+    innerArm: hex(THEMES.light.galaxy.innerArm),
+    arm: hex(THEMES.light.galaxy.arm),
+    armB: hex(THEMES.light.galaxy.armB),
+    haze: hex(THEMES.light.galaxy.haze),
+    knot: hex(THEMES.light.galaxy.knot),
   },
 };
+
+type GalaxyPal = (typeof GALAXY_COLORS)['dark'];
+let galaxyOverride: GalaxyPal | null = null;
+
+/**
+ * Admin colour overrides for the (dark) galaxy. Call before building figures;
+ * GraphJourney does, and lists the colours in its memo deps so a change
+ * rebuilds them. Pass null to go back to the theme.ts defaults.
+ */
+export function setGalaxyPalette(colors: Record<keyof GalaxyPal, string> | null) {
+  galaxyOverride = colors
+    ? (Object.fromEntries(
+        Object.entries(colors).map(([k, v]) => [k, hex(v)]),
+      ) as unknown as GalaxyPal)
+    : null;
+}
 
 /**
  * Render a set of galaxy parameters.
@@ -245,7 +262,7 @@ function renderGalaxy(
   hollow = 0,
   coreDim = 0,
 ) {
-  const pal = light ? GALAXY_COLORS.light : GALAXY_COLORS.dark;
+  const pal = light ? GALAXY_COLORS.light : (galaxyOverride ?? GALAXY_COLORS.dark);
   const R = GALAXY_R;
   const incl = GALAXY_INCL - expand * 0.62;
   const ci = Math.cos(incl);

@@ -1,4 +1,4 @@
-// src/lib/theme.ts
+// frontend/src/lib/theme.ts
 /**
  * THE COLOUR SOURCE OF TRUTH.
  *
@@ -82,6 +82,34 @@ export type Palette = {
     ambientScale: number;
     /** Constellation connecting-line thickness, passed straight to react-force-graph-3d's `linkWidth`. */
     linkWidth: number;
+  };
+
+  /**
+   * The spiral galaxy the hero opens on (painted in graph/cosmos.ts): white-hot
+   * core, warm bulge and inner arms, blue outer arms, a blue haze and the odd
+   * pink star-forming knot.
+   */
+  galaxy: {
+    core: string;
+    bulge: string;
+    innerArm: string;
+    arm: string;
+    armB: string;
+    haze: string;
+    knot: string;
+  };
+
+  /**
+   * The fixed night sky behind the whole site (core/SkyBackdrop.tsx): a radial
+   * gradient lighter in the middle, scattered faint stars and a few bright
+   * ones.
+   */
+  sky: {
+    center: string;
+    mid: string;
+    edge: string;
+    star: string;
+    bright: string;
   };
 
   /**
@@ -173,6 +201,24 @@ const dark: Palette = {
     dimAlpha: 0.1,
     ambientScale: 1,
     linkWidth: 0.3,
+  },
+
+  galaxy: {
+    core: '#fff4e0',
+    bulge: '#ffb070',
+    innerArm: '#ff9a4d',
+    arm: '#5d9cff',
+    armB: '#8cc6ff',
+    haze: '#3a6cc4',
+    knot: '#ff86c4',
+  },
+
+  sky: {
+    center: '#070b24',
+    mid: '#050819',
+    edge: '#020310',
+    star: '#d2e1ff',
+    bright: '#78aaff',
   },
 
   cardTints: {
@@ -325,6 +371,24 @@ const light: Palette = {
     dimAlpha: 0.14,
     ambientScale: 1.1,
     linkWidth: 0.3,
+  },
+
+  galaxy: {
+    core: '#a8410f',
+    bulge: '#c0632a',
+    innerArm: '#b86a3a',
+    arm: '#3c5ea8',
+    armB: '#5d77b8',
+    haze: '#8b93b8',
+    knot: '#b23f74',
+  },
+
+  sky: {
+    center: '#fff8ea',
+    mid: '#fdf3e3',
+    edge: '#f6e6cc',
+    star: '#d9a066',
+    bright: '#c9531c',
   },
 
   cardTints: {

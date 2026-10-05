@@ -1,4 +1,4 @@
-// src/components/core/DoorCard.tsx
+// frontend/src/components/core/DoorCard.tsx
 import { Link } from 'react-router-dom';
 import './doors.css';
 

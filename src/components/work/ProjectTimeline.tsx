@@ -1,4 +1,4 @@
-// src/components/work/ProjectTimeline.tsx
+// frontend/src/components/work/ProjectTimeline.tsx
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';

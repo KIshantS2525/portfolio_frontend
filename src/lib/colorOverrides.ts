@@ -1,41 +1,58 @@
-// src/lib/colorOverrides.ts
-import type { Theme } from '@/lib/theme';
+// frontend/src/lib/colorOverrides.ts
+import { THEMES, type Palette } from '@/lib/theme';
 
 /**
  * Runtime colour customisation, on top of the theme.ts defaults.
  *
- * These are the only colours the admin Colors tab can change without a
- * redeploy: the graph node colours (per kind) and the liquid-glass card
- * tints (per card kind), independently for dark and light. They live on the
- * backend content tree (see `/api/content`, `colors` key) — the same store
- * profile/projects/roles already use — so a change made in the panel shows
- * up for every visitor, not just the admin's own browser.
+ * The site has one look now (night), so there is one set of overrides — not
+ * a dark set and a light set. Everything the homepage actually shows can be
+ * changed here from the admin Colors tab without a redeploy:
  *
- * This module is a small module-level store with a pub/sub event, not React
- * state, because the values are needed in two places that don't share a
- * component tree: `usePalette()` (used by the WebGL graph, which reads plain
- * JS colour strings) and the plain CSS custom properties `.glass-card`
- * reads. A context would work too, but this needs zero provider wiring and
- * matches the existing `useTheme` pattern in this file's neighbour.
+ *   page    background, cards, the three text greys, the accent and its
+ *           hover/ink, the amber highlight, hairlines        → CSS variables
+ *   sky     the fixed backdrop gradient and its stars       → SkyBackdrop
+ *   galaxy  the hero spiral                                 → cosmos.ts
+ *   graph   node colours per kind, link colour + width      → the 3D graph
+ *   dust    the particles the sculptures are made of        → DustCloud
+ *   ambient the particles drifting behind the page          → AmbientField
+ *   cards   the glass info-card tints                       → CSS variables
+ *
+ * They live in the backend content tree (`colors` key), so a change shows up
+ * for every visitor. A tree saved by the old two-theme panel
+ * ({ dark: {...}, light: {...} }) is read as its dark half.
  */
 
 export type NodeKind = 'person' | 'role' | 'project' | 'domain' | 'tech' | 'achievement' | 'link';
 export type CardKind = 'base' | 'project' | 'tech' | 'role' | 'achievement';
 
-export type GraphOverrides = Partial<Record<NodeKind, string>>;
-export type CardOverrides = Partial<Record<CardKind, string>>;
-
-export type ThemeOverrides = {
-  graph?: GraphOverrides;
-  cards?: CardOverrides;
-  /** Constellation line thickness. Same units as react-force-graph-3d's `linkWidth`. */
-  linkWidth?: number;
-};
+export type PageKey =
+  | 'surface'
+  | 'surfaceRaised'
+  | 'text'
+  | 'textBody'
+  | 'textMuted'
+  | 'accent'
+  | 'accentHover'
+  | 'accentInk'
+  | 'emphasis'
+  | 'hairline';
+export type GalaxyKey = keyof Palette['galaxy'];
+export type SkyKey = keyof Palette['sky'];
 
 export type ColorOverrides = {
-  dark?: ThemeOverrides;
-  light?: ThemeOverrides;
+  page?: Partial<Record<PageKey, string>>;
+  sky?: Partial<Record<SkyKey, string>>;
+  galaxy?: Partial<Record<GalaxyKey, string>>;
+  graph?: Partial<Record<NodeKind, string>>;
+  /** Constellation line thickness, react-force-graph-3d `linkWidth` units. */
+  linkWidth?: number;
+  dust?: string[];
+  ambient?: string[];
+  cards?: Partial<Record<CardKind, string>>;
 };
+
+/** The defaults every override sits on top of. */
+export const BASE: Palette = THEMES.dark;
 
 export const COLOR_OVERRIDES_EVENT = 'ishant:color-overrides-change';
 
@@ -45,36 +62,100 @@ export function getColorOverrides(): ColorOverrides {
   return current;
 }
 
+/** Accepts the current flat shape or the old { dark, light } one. */
+export function normaliseColors(raw: unknown): ColorOverrides {
+  if (!raw || typeof raw !== 'object') return {};
+  const r = raw as Record<string, unknown>;
+  const flat = (r.dark && typeof r.dark === 'object' ? r.dark : r) as ColorOverrides;
+  const out: ColorOverrides = {};
+  for (const k of ['page', 'sky', 'galaxy', 'graph', 'cards'] as const) {
+    const v = flat[k];
+    if (v && typeof v === 'object') (out as Record<string, unknown>)[k] = { ...v };
+  }
+  if (typeof flat.linkWidth === 'number') out.linkWidth = flat.linkWidth;
+  if (Array.isArray(flat.dust)) out.dust = flat.dust.slice();
+  if (Array.isArray(flat.ambient)) out.ambient = flat.ambient.slice();
+  return out;
+}
+
 /**
- * Replace the whole overrides tree (e.g. after `/api/content` resolves, or
- * on every keystroke in the admin Colors tab for a live preview) and push
- * the card-tint CSS variables onto the document immediately so every
- * `.glass-card` on the page updates without a reload.
+ * The full palette with overrides applied — what the canvas-painted parts of
+ * the site (graph, galaxy, sky, particles) read.
  */
-export function setColorOverrides(next: ColorOverrides | null | undefined) {
-  current = next ?? {};
-  applyCardTintVars(currentThemeName());
+export function resolvePalette(o: ColorOverrides = current): Palette {
+  const page = o.page ?? {};
+  return {
+    ...BASE,
+    ...page,
+    // The amber is used both as emphasis and as link/label text.
+    accentText: page.emphasis ?? BASE.accentText,
+    graph: {
+      ...BASE.graph,
+      ...o.graph,
+      ...(o.linkWidth !== undefined ? { linkWidth: o.linkWidth } : null),
+      ...(o.dust?.length ? { dust: o.dust } : null),
+      ...(o.ambient?.length ? { ambient: o.ambient } : null),
+    },
+    galaxy: { ...BASE.galaxy, ...o.galaxy },
+    sky: { ...BASE.sky, ...o.sky },
+    cardTints: { ...BASE.cardTints, ...o.cards },
+  };
+}
+
+/**
+ * Replace the whole overrides tree (after /api/content resolves, or live from
+ * the admin preview) and push the CSS-variable colours onto <html> straight
+ * away, so every utility class that reads them updates without a reload.
+ */
+export function setColorOverrides(next: unknown) {
+  current = normaliseColors(next);
+  applyCssVars();
   window.dispatchEvent(new CustomEvent(COLOR_OVERRIDES_EVENT, { detail: current }));
 }
 
-function currentThemeName(): Theme {
-  return (document.documentElement.dataset.theme as Theme) || 'dark';
-}
+const PAGE_VARS: Record<PageKey, string[]> = {
+  surface: ['--surface'],
+  surfaceRaised: ['--surface-raised'],
+  text: ['--text'],
+  textBody: ['--text-body'],
+  textMuted: ['--text-muted'],
+  accent: ['--accent'],
+  accentHover: ['--accent-hover'],
+  accentInk: ['--accent-ink'],
+  emphasis: ['--emphasis', '--accent-text'],
+  hairline: ['--hairline'],
+};
 
 const CARD_KEYS: CardKind[] = ['base', 'project', 'tech', 'role', 'achievement'];
 
 /**
- * Writes `--glass-tint-*` as inline styles on <html>, which beats the
- * stylesheet's defaults from theme.generated.css without needing to touch
- * that generated file at runtime. Clearing an override removes the inline
- * property so the generated default shows through again.
+ * Inline styles on <html> beat the stylesheet defaults in
+ * theme.generated.css. Tailwind's colour utilities are declared on :root as
+ * var(--text) and friends, so setting the source variable on the same
+ * element is enough for text-bone, bg-iris and the rest to follow. Clearing
+ * an override removes the inline property and the default shows through.
  */
-export function applyCardTintVars(theme: Theme) {
+export function applyCssVars() {
   const root = document.documentElement;
-  const overrides = current[theme]?.cards ?? {};
+  const page = current.page ?? {};
+  for (const [key, vars] of Object.entries(PAGE_VARS) as [PageKey, string[]][]) {
+    for (const v of vars) {
+      if (page[key]) root.style.setProperty(v, page[key]!);
+      else root.style.removeProperty(v);
+    }
+  }
+  const cards = current.cards ?? {};
   for (const key of CARD_KEYS) {
-    const value = overrides[key];
+    const value = cards[key];
     if (value) root.style.setProperty(`--glass-tint-${key}`, value);
     else root.style.removeProperty(`--glass-tint-${key}`);
   }
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', page.surface ?? BASE.surface);
+}
+
+/** Kept for callers of the old name. */
+export function applyCardTintVars() {
+  applyCssVars();
 }

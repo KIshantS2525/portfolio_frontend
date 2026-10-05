@@ -1,3 +1,4 @@
+// frontend/src/lib/nameFont.ts
 /**
  * Which typeface sets your name (hero + the closing name of the scroll
  * journey). Change this one word to switch:
