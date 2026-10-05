@@ -820,3 +820,37 @@
 .closing-name.t-name-unbounded {
   font-size: clamp(28px, 4.5vw, 62px);
 }
+
+/* ── Sky wisps (SkyBackdrop) ─────────────────────────────────────────────
+   Long faint strokes of colour drifting over the navy. The outer layer
+   slides with scroll (--sky-s is sin(scrollY), set by SkyWisps); the inner
+   one wanders on its own slow loop. Both are transforms only, so they stay
+   on the compositor. */
+.sky-wisps { mix-blend-mode: screen; }
+.sky-wisp-slide {
+  position: absolute;
+  inset: 0;
+  transform: translate3d(calc(var(--sky-s, 0) * var(--par) * 0.6), calc(var(--sky-s, 0) * var(--par)), 0);
+  transition: transform 0.6s ease-out;
+  will-change: transform;
+}
+.sky-wisp {
+  position: absolute;
+  border-radius: 50%;
+  transform: rotate(var(--rot));
+  animation-name: sky-wander;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+  will-change: transform, opacity;
+}
+@keyframes sky-wander {
+  0%   { transform: translate3d(0, 0, 0) rotate(var(--rot)) scale(1, 1); opacity: 0.75; }
+  33%  { transform: translate3d(6vw, -3vh, 0) rotate(calc(var(--rot) + 6deg)) scale(1.12, 0.9); opacity: 1; }
+  66%  { transform: translate3d(-4vw, 4vh, 0) rotate(calc(var(--rot) - 5deg)) scale(0.92, 1.15); opacity: 0.85; }
+  100% { transform: translate3d(3vw, 2vh, 0) rotate(calc(var(--rot) + 3deg)) scale(1.05, 1); opacity: 0.65; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sky-wisp { animation: none; }
+  .sky-wisp-slide { transition: none; }
+}

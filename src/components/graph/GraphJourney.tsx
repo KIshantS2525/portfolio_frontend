@@ -9,7 +9,11 @@ import { DustCloud } from '@/components/graph/DustCloud';
 import { BlackHoleHeroSection } from '@/components/graph/BlackHole';
 import { OUTER, starFieldShape, type Vec3 } from '@/components/graph/shapes';
 import {
+  AXIS_U,
+  AXIS_V,
+  AXIS_W,
   GALAXY_NORMAL,
+  VORTEX_NORMAL,
   butterflyFigure,
   eyeFigure,
   galaxyFigures,
@@ -153,6 +157,9 @@ type PNode = {
 
 /** Unit vector from the origin toward the fixed camera — see the camera effect below. */
 const CAM = new THREE.Vector3(0.18, 0.1, 1).normalize();
+/** Scratch colour for the glow's per-frame blend. */
+const glowTint = new THREE.Color();
+const glowMix = new THREE.Color();
 
 const DOT: Record<NodeKind, number> = {
   person: 20, // deliberately larger than everything — queen-bee node.
@@ -240,7 +247,7 @@ const DOCK_HOLD = 0.3;
 
 /** Roll about the view axis. The Butterfly on its diagonal; the vortex rolled to match the black hole. */
 const TILT: Partial<Record<Key, number>> = {
-  butterfly: 0.95,
+  butterfly: 0.42,
   vortex: -0.35,
   rest: -0.35,
 };
@@ -288,6 +295,68 @@ const DUST_A: Record<Key, number> = {
   butterfly: 1,
   vortex: 1,
   rest: 1,
+};
+
+/**
+ * The faint coloured light each figure casts on the sky behind it. The sky
+ * itself stays plain navy (SkyBackdrop); colour appears only behind an object
+ * that really glows that colour — the Orion Nebula's rose hydrogen, the
+ * Helix's rust haze, the Butterfly's warm wings — and travels, fades and
+ * changes with the figure as the page scrolls. The galaxy and the Globe cast
+ * none. `hollow` swaps the cloud for a ring with a dark middle. `size` is in OUTER radii, `aspect` stretches it along the figure's
+ * long axis (and turns with TILT).
+ */
+const GLOW: Record<Key, { col: string; a: number; size: number; aspect: number; hollow: number }> = {
+  galaxy: { col: '#2b3f8f', a: 0, size: 4, aspect: 1, hollow: 0 },
+  core: { col: '#2b3f8f', a: 0, size: 4, aspect: 1, hollow: 0 },
+  orionWide: { col: '#9c2d55', a: 0.06, size: 7.5, aspect: 1.4, hollow: 0 },
+  orionHold: { col: '#9c2d55', a: 0.06, size: 7.5, aspect: 1.4, hollow: 0 },
+  orion: { col: '#b02a4c', a: 0.26, size: 4.6, aspect: 0.85, hollow: 0 },
+  // The Helix's red is the haze *outside* its ring; the interior stays blue.
+  eye: { col: '#b3391d', a: 0.26, size: 5.2, aspect: 1.15, hollow: 1 },
+  butterfly: { col: '#b8521f', a: 0.22, size: 5.2, aspect: 1.7, hollow: 0 },
+  vortex: { col: '#a8601c', a: 0.08, size: 4.4, aspect: 1.2, hollow: 0 },
+  rest: { col: '#a8601c', a: 0, size: 4.4, aspect: 1.2, hollow: 0 },
+};
+
+/**
+ * Life while the reader rests on a figure — the same idea as the black hole,
+ * which never stops turning. Each figure moves in its own character:
+ *
+ *   galaxy / dive   turns slowly about its own axis, like a real disc
+ *   Orion           breathes, and its gas stirs in place
+ *   Helix           turns about the line of sight and pulses
+ *   Butterfly       its wings beat slowly, more at the tips than the waist
+ *   vortex / rest   the whirlpool keeps winding in
+ *
+ * The motion is applied to each *endpoint* figure before the scroll blends
+ * between them, so a turning figure turns from wherever it has got to and
+ * nothing ever unwinds when you scroll on. Rotations share a phase where two
+ * keyframes are the same object (galaxy and dive; vortex and rest).
+ *
+ *   spin     rad/s about `axis`          breathe  scale amplitude, `period` s
+ *   flap     wing-beat amplitude          stir     per-mote drift, world units
+ */
+type Idle = {
+  spin: number;
+  axis: Vec3;
+  group: string;
+  breathe: number;
+  period: number;
+  flap: number;
+  stir: number;
+};
+const TAU = Math.PI * 2;
+const IDLE: Record<Key, Idle> = {
+  galaxy: { spin: TAU / 600, axis: GALAXY_NORMAL, group: 'galaxy', breathe: 0, period: 1, flap: 0, stir: 0.8 },
+  core: { spin: TAU / 600, axis: GALAXY_NORMAL, group: 'galaxy', breathe: 0, period: 1, flap: 0, stir: 0.6 },
+  orionWide: { spin: 0, axis: AXIS_W, group: 'orion', breathe: 0.008, period: 26, flap: 0, stir: 1.8 },
+  orionHold: { spin: 0, axis: AXIS_W, group: 'orion', breathe: 0.008, period: 26, flap: 0, stir: 1.8 },
+  orion: { spin: 0, axis: AXIS_W, group: 'orion', breathe: 0.018, period: 24, flap: 0, stir: 2 },
+  eye: { spin: TAU / 720, axis: AXIS_W, group: 'eye', breathe: 0.02, period: 20, flap: 0, stir: 1.2 },
+  butterfly: { spin: 0, axis: AXIS_W, group: 'fly', breathe: 0.008, period: 22, flap: 0.05, stir: 1.4 },
+  vortex: { spin: TAU / 150, axis: VORTEX_NORMAL, group: 'vortex', breathe: 0, period: 1, flap: 0, stir: 0.8 },
+  rest: { spin: TAU / 150, axis: VORTEX_NORMAL, group: 'vortex', breathe: 0, period: 1, flap: 0, stir: 0.8 },
 };
 
 /** 1 = nodes are a readable graph (own sizes and colours, clickable); 0 = they dissolve into the figure. */
@@ -389,6 +458,59 @@ const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
  * DustCloud are set roughly half again as wide as the old ones, since the
  * quad now has to carry a halo as well as the point at the middle of it.
  */
+/**
+ * A soft, cloudy glow: a dozen offset blobs under one wide falloff, so the
+ * light behind a nebula has an uneven edge instead of reading as a disc.
+ */
+function makeGlowTexture(hollow = false) {
+  const s = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = s;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    let seed = 0x6107;
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    ctx.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 14; k++) {
+      const ang = rand() * Math.PI * 2;
+      const d = Math.sqrt(rand()) * s * 0.17;
+      const x = s / 2 + Math.cos(ang) * d;
+      const y = s / 2 + Math.sin(ang) * d;
+      const r = s * (0.2 + rand() * 0.18);
+      const a = 0.09 + rand() * 0.07;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(255,255,255,${a})`);
+      g.addColorStop(0.5, `rgba(255,255,255,${a * 0.4})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, s, s);
+    }
+    // One wide falloff over the lot, so nothing reaches the square's edge.
+    ctx.globalCompositeOperation = 'destination-in';
+    const fall = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    fall.addColorStop(0, 'rgba(255,255,255,1)');
+    fall.addColorStop(0.6, 'rgba(255,255,255,0.55)');
+    fall.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = fall;
+    ctx.fillRect(0, 0, s, s);
+    if (hollow) {
+      ctx.globalCompositeOperation = 'destination-out';
+      const hole = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s * 0.3);
+      hole.addColorStop(0, 'rgba(0,0,0,1)');
+      hole.addColorStop(0.55, 'rgba(0,0,0,0.85)');
+      hole.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = hole;
+      ctx.fillRect(0, 0, s, s);
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function makeStarTexture() {
   const s = 128;
   const canvas = document.createElement('canvas');
@@ -674,7 +796,7 @@ type Node3D = PNode & {
  * this: a mote drifting behind a paragraph and a mote holding up a chess piece
  * want opposite things from a light background, and one array cannot be both.
  */
-const DUST_COUNT = 34000;
+const DUST_COUNT = 84000;
 
 /**
  * How many of those hang back as a starfield rather than belonging to the
@@ -829,6 +951,9 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
   const orb = useRef<THREE.Texture | null>(null);
   const labels = useRef(new Map<string, THREE.Sprite>());
   const dust = useRef<DustCloud | null>(null);
+  const glowRef = useRef<[THREE.Sprite, THREE.Sprite] | null>(null);
+  /** Idle-motion clock and spin phases; survives the tick effect re-running. */
+  const idleState = useRef({ lastNow: 0, clock: 0, phase: {} as Record<string, number> });
   /** The distance the camera would sit at with no push-in. Solved once, in the camera effect. */
   const fit = useRef(0);
   /** The distance it is actually at, so the dolly only writes when it moves. */
@@ -1029,6 +1154,22 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     };
   }, [theme]);
 
+  /**
+   * ForceGraph3D runs its own render loop, separate from the scroll tick
+   * below, and it does not stop on its own. Left running, it went on drawing
+   * the whole 84k-particle scene every frame while the reader was down at the
+   * doors or the contact section — enough GPU work that Chrome fell behind on
+   * rasterising the page itself, and the doors at the bottom showed up blank
+   * (transparent) until it caught up. It now sleeps whenever the journey is
+   * off screen, like every other animated thing on the site.
+   */
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    if (visible) fg.resumeAnimation?.();
+    else fg.pauseAnimation?.();
+  }, [visible, size.w]);
+
   /** Renderer-only setup. See the file header for why these are props, not methods. */
   useEffect(() => {
     const fg = fgRef.current;
@@ -1053,11 +1194,40 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     for (const points of cloud.objects) scene.add(points);
     dust.current = cloud;
 
+    // The figure's own glow, drawn first and behind everything (see GLOW):
+    // a cloud, and a ring for the Helix, cross-faded by `hollow`.
+    const glowTex = [makeGlowTexture(false), makeGlowTexture(true)];
+    const glows = glowTex.map((map) => {
+      const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          depthTest: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      sprite.renderOrder = -2;
+      sprite.visible = false;
+      sprite.raycast = () => {};
+      sprite.userData.dust = true;
+      scene.add(sprite);
+      return sprite;
+    }) as [THREE.Sprite, THREE.Sprite];
+    glowRef.current = theme === 'light' ? null : glows;
+
 
     return () => {
       for (const points of cloud.objects) scene.remove(points);
       cloud.dispose();
       dust.current = null;
+      for (const g of glows) {
+        scene.remove(g);
+        g.material.dispose();
+      }
+      for (const t of glowTex) t.dispose();
+      glowRef.current = null;
     };
   }, [size.w, size.h, colors, theme]);
 
@@ -1170,6 +1340,15 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
 
     let raf = 0;
     let holeMounted = false;
+    // Idle-motion clock and spin phases live in a ref (see idleState), not
+    // here: this effect re-runs on every hover, and state kept in its closure
+    // reset the galaxy's turn each time — the figure jumped under the cursor,
+    // the hover moved to another node, and the Ask screen flickered.
+    const idleS = idleState.current;
+    idleS.lastNow = performance.now() / 1000;
+    const phase = idleS.phase;
+    const pA: [number, number, number] = [0, 0, 0];
+    const pB: [number, number, number] = [0, 0, 0];
     const tick = () => {
       const el = outerRef.current;
       if (el) {
@@ -1260,11 +1439,87 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           e2z = ax * e1y - ay * e1x;
         }
         const turns = sw ? sw.turns * Math.PI * 2 : 0;
-        /** Interpolate point i of two packed arrays into `out`, straight or along an arc. */
-        const interp = (a: Float32Array, b: Float32Array, i: number) => {
+
+        /* Idle life: advance the clock and build each endpoint's pose. */
+        const now = performance.now() / 1000;
+        const dt = Math.min(0.1, Math.max(0, now - idleS.lastNow));
+        idleS.lastNow = now;
+        // Hold still while the reader is pointing at, or has opened, a node:
+        // a target that drifts out from under the cursor is the glitch.
+        const holding = activeId !== null;
+        if (!reduced && !holding) {
+          // Only the figures on screen keep turning; the rest hold their phase.
+          for (const k of [fromKey, toKey]) {
+            const idle = IDLE[k];
+            if (idle.spin) phase[idle.group] = ((phase[idle.group] ?? 0) + idle.spin * dt) % TAU;
+          }
+          idleS.clock += dt;
+        }
+        const clock = idleS.clock;
+        const poseOf = (k: Key) => {
+          const idle = IDLE[k];
+          const ang = reduced ? 0 : (phase[idle.group] ?? 0);
+          const c = Math.cos(ang);
+          const sn = Math.sin(ang);
+          const [kx, ky, kz] = idle.axis;
+          const sc = 1 + (reduced ? 0 : idle.breathe * Math.sin((TAU * clock) / idle.period));
+          const flap = reduced ? 0 : idle.flap * Math.sin((TAU * clock) / 16);
+          const stir = reduced ? 0 : idle.stir;
+          return { spin: idle.spin !== 0, c, sn, kx, ky, kz, sc, flap, stir };
+        };
+        const poseF = poseOf(fromKey);
+        const poseT = poseOf(toKey);
+        type Pose = ReturnType<typeof poseOf>;
+        const ux = AXIS_U[0], uy = AXIS_U[1], uz = AXIS_U[2];
+        const vx = AXIS_V[0], vy = AXIS_V[1], vz = AXIS_V[2];
+        /** Apply a pose to point i of a figure, into `pp`. */
+        const pose = (P: Pose, a: Float32Array, i: number, pp: [number, number, number]) => {
           const j = i * 3;
-          const x0 = a[j], y0 = a[j + 1], z0 = a[j + 2];
-          const x1 = b[j], y1 = b[j + 1], z1 = b[j + 2];
+          let x = a[j], y = a[j + 1], z = a[j + 2];
+          if (P.spin) {
+            // Rodrigues: rotate about the unit axis k.
+            const d = (P.kx * x + P.ky * y + P.kz * z) * (1 - P.c);
+            const cx = P.ky * z - P.kz * y;
+            const cy = P.kz * x - P.kx * z;
+            const cz = P.kx * y - P.ky * x;
+            const nx = x * P.c + cx * P.sn + P.kx * d;
+            const ny = y * P.c + cy * P.sn + P.ky * d;
+            const nz = z * P.c + cz * P.sn + P.kz * d;
+            x = nx; y = ny; z = nz;
+          }
+          if (P.flap !== 0) {
+            // Wings beat about the waist: the up/down offset grows toward the tips.
+            const u = x * ux + y * uy + z * uz;
+            const v = x * vx + y * vy + z * vz;
+            const k = P.flap * Math.min(1, Math.abs(u) / (OUTER * 2.2));
+            x += vx * v * k; y += vy * v * k; z += vz * v * k;
+            const bob = P.flap * 0.18 * Math.abs(u);
+            x += AXIS_W[0] * bob; y += AXIS_W[1] * bob; z += AXIS_W[2] * bob;
+          }
+          if (P.sc !== 1) { x *= P.sc; y *= P.sc; z *= P.sc; }
+          if (P.stir) {
+            // Each mote circles its own spot slowly, out of step with its neighbours.
+            const ph = i * 2.399963;
+            x += Math.sin(clock * 0.16 + ph) * P.stir;
+            y += Math.cos(clock * 0.13 + ph * 1.3) * P.stir;
+          }
+          pp[0] = x; pp[1] = y; pp[2] = z;
+        };
+
+        /**
+         * Interpolate point i of two packed arrays into `out`, straight or
+         * along an arc. `still` drops the per-mote stir: the clickable nodes
+         * turn and breathe with their figure but never wander on their own.
+         */
+        const interp = (a: Float32Array, b: Float32Array, i: number, still = false) => {
+          const sF = poseF.stir;
+          const sT = poseT.stir;
+          if (still) { poseF.stir = 0; poseT.stir = 0; }
+          pose(poseF, a, i, pA);
+          pose(poseT, b, i, pB);
+          if (still) { poseF.stir = sF; poseT.stir = sT; }
+          const x0 = pA[0], y0 = pA[1], z0 = pA[2];
+          const x1 = pB[0], y1 = pB[1], z1 = pB[2];
           if (!sw || a === b) {
             out[0] = x0 + (x1 - x0) * localT;
             out[1] = y0 + (y1 - y0) * localT;
@@ -1318,7 +1573,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         const toN = figures[toKey];
         for (let i = 0; i < nodes.length; i++) {
           const n = nodes[i];
-          interp(fromN.pos, toN.pos, i);
+          interp(fromN.pos, toN.pos, i, true);
           const [x, y, z] = out;
           // Rotate the figure, then pan it — a dock is a statement about the screen.
           const rx = x * cosY + z * sinY;
@@ -1403,6 +1658,29 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           // (SkyBackdrop) is the one star layer, so the Hero never shows two.
           for (let i = 0; i < FIELD_COUNT; i++) cloud.set(shaped + i, 0, 0, 0, 0, 0);
           cloud.end();
+        }
+
+        /* The figure's glow: follows the pan, fades and recolours with it. */
+        const glows = glowRef.current;
+        if (glows) {
+          const gF = GLOW[fromKey];
+          const gT = GLOW[toKey];
+          const a = gF.a + (gT.a - gF.a) * localT;
+          const hollow = gF.hollow + (gT.hollow - gF.hollow) * localT;
+          const sz = OUTER * (gF.size + (gT.size - gF.size) * localT);
+          const asp = gF.aspect + (gT.aspect - gF.aspect) * localT;
+          glowTint.set(gF.col).lerp(glowMix.set(gT.col), localT);
+          glows.forEach((glow, k) => {
+            const ga = a * (k === 0 ? 1 - hollow : hollow);
+            glow.visible = ga > 0.002;
+            if (!glow.visible) return;
+            glow.material.opacity = ga;
+            glow.material.color.copy(glowTint);
+            glow.material.rotation = tilt;
+            glow.scale.set(sz * asp, sz / asp, 1);
+            // Set back behind the figure along the view axis.
+            glow.position.set(panX - CAM.x * OUTER * 0.7, -CAM.y * OUTER * 0.7, -CAM.z * OUTER * 0.7);
+          });
         }
 
         /*
@@ -1840,6 +2118,7 @@ function MobileJourney({ projects }: { projects?: Project[] }) {
 /** A small, static, non-scroll-driven sphere for mobile — the shape sequence is a desktop-only luxury. */
 function StaticSphere({ nodes, onPick }: { nodes: Node3D[]; onPick: (n: Node3D) => void }) {
   const outerRef = useRef<HTMLDivElement>(null);
+  const visible = useVisible();
   const [theme] = useTheme();
   const texture = useRef<THREE.Texture | null>(null);
   const orb = useRef<THREE.Texture | null>(null);
@@ -1881,6 +2160,14 @@ function StaticSphere({ nodes, onPick }: { nodes: Node3D[]; onPick: (n: Node3D) 
     }
     if (size.w) fg.cameraPosition({ x: OUTER * 1.1, y: OUTER * 0.6, z: OUTER * 3.2 }, { x: 0, y: 0, z: 0 }, 0);
   }, [size.w]);
+
+  // Same as the desktop journey: no drawing while scrolled away.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    if (visible) fg.resumeAnimation?.();
+    else fg.pauseAnimation?.();
+  }, [visible, size.w]);
 
   const nodeObject = (raw: Node3D) => {
     const dot = new THREE.Sprite(

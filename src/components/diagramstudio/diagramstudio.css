@@ -1,0 +1,276 @@
+/* frontend/src/components/diagramstudio/diagramstudio.css */
+/*
+ * The DiagramStudio demo cards, drawn in the portfolio's own palette: every
+ * token below resolves to the site's theme variables, so the cards follow
+ * the active theme (and any admin colour overrides) instead of sitting on
+ * the page as a white box.
+ */
+.ds-theme {
+  --ds-surface: var(--surface-raised);
+  --ds-surface-alt: color-mix(in srgb, var(--surface-raised), var(--text) 4%);
+  --ds-inset: color-mix(in srgb, var(--surface), var(--surface-raised) 40%);
+  --ds-border: color-mix(in srgb, var(--text) 12%, transparent);
+  --ds-border-subtle: color-mix(in srgb, var(--text) 7%, transparent);
+  --ds-grid-dot: color-mix(in srgb, var(--text) 14%, transparent);
+  --ds-heading: var(--text);
+  --ds-muted: var(--text-body);
+  --ds-dim: var(--text-muted);
+  --ds-ghost: color-mix(in srgb, var(--text-muted) 75%, transparent);
+  --ds-blue: var(--accent);
+  --ds-gold: var(--emphasis);
+  --ds-green: color-mix(in srgb, var(--tertiary), var(--text) 30%);
+  --ds-sans: var(--font-sans);
+  --ds-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@keyframes termBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+
+/* ── Spotlight ring ─────────────────────────────────────────── */
+.ds-spot { position: relative; }
+.ds-spot-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  border-radius: inherit;
+  pointer-events: none;
+  padding: 1.5px;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  background: radial-gradient(
+    300px circle at var(--sx) var(--sy),
+    color-mix(in srgb, var(--ds-glow) 85%, transparent) 0%,
+    color-mix(in srgb, var(--ds-glow) 40%, transparent) 35%,
+    transparent 65%
+  );
+  mask-composite: exclude;
+}
+.ds-spot-body { position: relative; z-index: 2; }
+
+.ds-window {
+  border-radius: 16px;
+  border: 1px solid var(--ds-border);
+  overflow: hidden;
+  background: var(--ds-surface);
+}
+
+/* ── Diagram-type tabs ──────────────────────────────────────── */
+.ds-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.ds-tab {
+  font: 500 13px/1.4 var(--ds-sans);
+  padding: 7px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--ds-border);
+  background: transparent;
+  color: var(--ds-dim);
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.ds-tab:hover { color: var(--ds-heading); }
+.ds-tab.is-active {
+  background: var(--ds-surface);
+  border-color: var(--ds-blue);
+  color: var(--ds-heading);
+}
+
+/* ── Window ─────────────────────────────────────────────────── */
+.ds-live-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.ds-pane { display: flex; flex-direction: column; min-width: 0; }
+.ds-pane-left { border-right: 1px solid var(--ds-border); }
+
+.ds-bar {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--ds-border);
+  background: var(--ds-surface-alt);
+}
+.ds-bar-left { gap: 8px; padding: 10px 14px 10px 20px; }
+.ds-bar-right { justify-content: space-between; padding: 12px 20px; }
+.ds-dot { width: 10px; height: 10px; border-radius: 50%; opacity: 0.7; flex: none; }
+
+.ds-files { margin-left: 10px; display: flex; gap: 4px; }
+.ds-file {
+  padding: 5px 11px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font: 11.5px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: -0.01em;
+  background: transparent;
+  color: var(--ds-ghost);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.ds-file:hover { color: var(--ds-muted); }
+.ds-file.is-active {
+  background: var(--ds-surface);
+  color: var(--ds-heading);
+  box-shadow: inset 0 0 0 1px var(--ds-border);
+}
+
+.ds-filename { font: 12px/1.4 monospace; color: var(--ds-ghost); }
+.ds-live {
+  font: 500 11px/1 var(--ds-sans);
+  color: var(--ds-blue);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ds-auto {
+  font: 500 10px/1 var(--ds-sans);
+  color: var(--ds-gold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ds-left-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+/* ── Prompt typer ───────────────────────────────────────────── */
+.ds-typer { padding: 24px 24px 20px; flex: 1; }
+.ds-typer-text {
+  margin: 0;
+  font: 400 15px/1.8 var(--ds-sans);
+  color: var(--ds-muted);
+}
+.ds-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--ds-blue);
+  animation: termBlink 0.65s step-end infinite;
+}
+.ds-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ds-border-subtle);
+  font: 12px/1.4 var(--ds-sans);
+  color: var(--ds-green);
+}
+.ds-meta-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ds-green); flex: none; }
+
+/* ── DSL ────────────────────────────────────────────────────── */
+.ds-dsl {
+  margin: 0;
+  padding: 20px 20px 20px 0;
+  overflow: auto;
+  font: 12.5px/1.75 var(--ds-mono);
+  color: var(--ds-muted);
+  white-space: pre;
+  tab-size: 2;
+}
+.ds-dsl-ln {
+  display: inline-block;
+  width: 3.2em;
+  padding-right: 1.2em;
+  text-align: right;
+  color: var(--ds-ghost);
+  user-select: none;
+}
+.ds-tk-kw { color: color-mix(in srgb, var(--ds-blue), var(--text) 35%); }
+.ds-tk-str { color: var(--ds-heading); }
+.ds-tk-attr { color: var(--ds-blue); }
+.ds-tk-op { color: var(--ds-gold); }
+.ds-tk-cmt { color: var(--ds-ghost); font-style: italic; }
+
+/* ── Canvas ─────────────────────────────────────────────────── */
+.ds-canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  padding: 14px;
+  background-color: var(--ds-inset);
+  background-image: radial-gradient(circle, var(--ds-grid-dot) 1.1px, transparent 1.1px);
+  background-size: 22px 22px;
+  display: flex;
+}
+.ds-diagram { flex: 1; min-height: 0; display: flex; pointer-events: none; }
+.ds-diagram > svg { display: block; flex: 1; }
+
+/*
+ * The exports were drawn for a light canvas. Nodes, lanes and label pills
+ * carry their own fills and read fine on the dark one; the few strokes and
+ * labels that sit straight on the canvas (sequence actors and message lines)
+ * are lifted to the theme's text colours so they stay legible.
+ */
+.ds-diagram [data-seq-kind='actor'] text { fill: var(--ds-heading); }
+.ds-diagram [data-seq-kind='actor'] .node-body { stroke: var(--ds-muted); }
+.ds-diagram .msg-line { stroke: color-mix(in srgb, var(--ds-muted) 85%, transparent); }
+.ds-diagram marker[id$='seq-arrow-msg-filled'] path { fill: var(--ds-muted); }
+.ds-diagram marker[id$='seq-arrow-msg-open'] path { stroke: var(--ds-muted); }
+
+.ds-generating {
+  position: absolute;
+  inset: 14px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 10px;
+  background: var(--ds-inset);
+  font: 12px/1 var(--ds-sans);
+  color: var(--ds-ghost);
+}
+.ds-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--ds-blue);
+  border-top-color: transparent;
+  animation: ds-spin 0.8s linear infinite;
+}
+
+/* ── Documents ──────────────────────────────────────────────── */
+.ds-docs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(32px, 5vw, 64px);
+  align-items: start;
+}
+.ds-doc-tab {
+  font: 500 13px/1.4 var(--ds-sans);
+  padding: 7px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--ds-border);
+  background: transparent;
+  color: var(--ds-dim);
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.ds-doc-tab:hover { color: var(--ds-heading); }
+.ds-doc-tab.is-active {
+  border-color: color-mix(in srgb, var(--ds-blue) 55%, transparent);
+  background: color-mix(in srgb, var(--ds-blue) 16%, transparent);
+  color: var(--ds-heading);
+}
+.ds-doc {
+  margin: 0;
+  padding: 20px 24px;
+  font: 13px/1.8 var(--ds-mono);
+  color: var(--ds-muted);
+  white-space: pre-wrap;
+  min-height: 300px;
+  animation: ds-doc-in 0.35s ease-out;
+}
+@keyframes ds-doc-in { from { opacity: 0; transform: translateY(4px); } }
+
+/* ── Narrow screens: stack ──────────────────────────────────── */
+@media (max-width: 860px) {
+  .ds-live-grid, .ds-docs-grid { grid-template-columns: 1fr; }
+  .ds-pane-left { border-right: none; border-bottom: 1px solid var(--ds-border); }
+  .ds-left-body { min-height: 0 !important; max-height: 320px; }
+  .ds-canvas.is-wide { min-height: 240px !important; }
+  .ds-canvas.is-square { min-height: 380px !important; }
+  .ds-canvas.is-tall { min-height: 480px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-caret, .ds-spinner, .ds-doc { animation: none; }
+}

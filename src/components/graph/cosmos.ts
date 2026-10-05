@@ -12,6 +12,12 @@
  *   Vortex        Signature   — a nebula wound into a whirlpool, draining at Rest
  *                               into the ray-traced black hole (BlackHole.tsx)
  *
+ * The galaxy and the three nebulae are sampled from real photographs (see
+ * cosmosMaps.ts): each particle lands where the object's light really is,
+ * with more particles where it is brighter, and takes the photograph's colour
+ * at that spot. That is what makes them read as the Orion Nebula, the Helix,
+ * NGC 6302 and a grand-design spiral rather than as shapes inspired by them.
+ *
  * Every generator is per-index deterministic and, where two figures are
  * neighbours, derived from the same per-point parameters — the Orion spread
  * and gathered are one set of points rendered two ways, as are the Vortex and
@@ -27,6 +33,13 @@
  */
 import { OUTER, type Vec3 } from '@/components/graph/shapes';
 import { THEMES } from '@/lib/theme';
+import {
+  BUTTERFLY_MAP,
+  GALAXY_MAP,
+  HELIX_MAP,
+  ORION_MAP,
+  type CosmosMap,
+} from '@/components/graph/cosmosMaps';
 
 export type Figure = {
   /** xyz per point, world space. */
@@ -113,6 +126,127 @@ function paint(f: Figure, i: number, c: RGB, w: number) {
   f.w[i] = w;
 }
 
+/* ── sampling the photographs ───────────────────────────────────────────── */
+
+type Sampler = {
+  w: number;
+  h: number;
+  /** density 0–1 per cell */
+  d: Float32Array;
+  /** galaxy only: class per cell */
+  cls: Uint8Array | null;
+  /** cumulative sampling weight per cell */
+  cdf: Float64Array;
+  rgb: Uint8Array | null;
+  cw: number;
+  ch: number;
+  /** half-extent of the map: the longer side spans -1..1 */
+  ax: number;
+  ay: number;
+};
+
+function decode(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+const samplerCache = new Map<string, Sampler>();
+
+/**
+ * Cells are drawn with probability density^gamma: gamma above 1 pulls the
+ * particles onto the bright structure (filaments, ring, arms) and leaves the
+ * faint glow thin, which is how a photograph's contrast survives being
+ * rebuilt from a finite number of points.
+ */
+function sampler(name: string, map: CosmosMap, gamma: number, packed = false): Sampler {
+  const key = `${name}:${gamma}`;
+  const hit = samplerCache.get(key);
+  if (hit) return hit;
+  const raw = decode(map.d);
+  const n = map.w * map.h;
+  const d = new Float32Array(n);
+  const cls = packed ? new Uint8Array(n) : null;
+  const cdf = new Float64Array(n);
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const v = packed ? (raw[i] >> 2) / 63 : raw[i] / 255;
+    if (cls) cls[i] = raw[i] & 3;
+    d[i] = v;
+    acc += Math.pow(v, gamma);
+    cdf[i] = acc;
+  }
+  const long = Math.max(map.w, map.h);
+  const s: Sampler = {
+    w: map.w,
+    h: map.h,
+    d,
+    cls,
+    cdf,
+    rgb: map.c ? decode(map.c) : null,
+    cw: map.cw ?? 0,
+    ch: map.ch ?? 0,
+    ax: map.w / long,
+    ay: map.h / long,
+  };
+  samplerCache.set(key, s);
+  return s;
+}
+
+type Draw = { x: number; y: number; dens: number; cls: number; col: RGB };
+
+/** One particle: a cell by weight, a uniform spot inside it, the colour there. */
+function draw(s: Sampler, rand: () => number): Draw {
+  const total = s.cdf[s.cdf.length - 1];
+  const t = rand() * total;
+  let lo = 0;
+  let hi = s.cdf.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (s.cdf[mid] < t) lo = mid + 1;
+    else hi = mid;
+  }
+  const row = Math.floor(lo / s.w);
+  const colIdx = lo - row * s.w;
+  const fx = (colIdx + rand()) / s.w;
+  const fy = (row + rand()) / s.h;
+  let col: RGB = [1, 1, 1];
+  if (s.rgb) {
+    const cx = Math.min(s.cw - 1, Math.floor(fx * s.cw));
+    const cy = Math.min(s.ch - 1, Math.floor(fy * s.ch));
+    const j = (cy * s.cw + cx) * 3;
+    col = [s.rgb[j] / 255, s.rgb[j + 1] / 255, s.rgb[j + 2] / 255];
+  }
+  return {
+    x: (fx * 2 - 1) * s.ax,
+    // Image rows run downward; the figure's v axis runs up.
+    y: -(fy * 2 - 1) * s.ay,
+    dens: s.d[lo],
+    cls: s.cls ? s.cls[lo] : 0,
+    col,
+  };
+}
+
+/**
+ * Per-particle weight. Brighter regions already get more particles, so each
+ * particle there is dimmed (dens^-0.45) to keep the core from summing to a
+ * flat white blob; the set is then scaled to a mean weight, which is what
+ * holds a figure's total light steady whatever the particle count.
+ */
+function normaliseWeights(w: Float32Array, dens: Float32Array, mean: number, expo = -0.45) {
+  let sum = 0;
+  for (let i = 0; i < w.length; i++) {
+    w[i] = Math.pow(Math.max(0.04, dens[i]), expo);
+    sum += w[i];
+  }
+  const k = (mean * w.length) / Math.max(1e-6, sum);
+  for (let i = 0; i < w.length; i++) w[i] = Math.min(1, w[i] * k);
+}
+
+/** The light theme's ink: the photograph's hue, deepened to read on paper. */
+const ink = (c: RGB): RGB => [c[0] * 0.55, c[1] * 0.5, c[2] * 0.6];
+
 /* ── Galaxy, Galaxy Dive, Stardust ──────────────────────────────────────── */
 
 /** Galaxy radius. Larger than the old sphere: a galaxy should feel vast. */
@@ -135,24 +269,34 @@ type GalaxyParams = {
   th: Float32Array;
   h: Float32Array;
   kind: Uint8Array;
+  /** Brightness of the photograph where the star was drawn, 0–1. */
+  dn: Float32Array;
   /** Per-point noise for the unwinding, so the Stardust is not just a bigger galaxy. */
   n1: Float32Array;
   n2: Float32Array;
   n3: Float32Array;
 };
 
-const PITCH = 1 / Math.tan((13.5 * Math.PI) / 180);
-
 /**
- * Six arms, not two. Each starts at its own angle round the bulge and winds
- * out on the same logarithmic pitch; they are given slightly different
- * lengths so the galaxy reads as grown rather than stamped.
+ * The galaxy is M74, a grand-design spiral seen face-on, sampled from its
+ * photograph (GALAXY_MAP) and then tilted into the oblique view by
+ * renderGalaxy. Its arms wind the same way the old procedural ones did, so
+ * the dive and the unwinding into the Stardust still turn the right way.
  */
-const ARMS = 6;
-const ARM_LEN = [1.0, 0.82, 0.94, 0.78, 0.98, 0.86];
+const GALAXY_GAMMA = 2.6;
 
-function armAngle(arm: number, r: number) {
-  return (arm * Math.PI * 2) / ARMS + Math.log(Math.max(r, 0.1) / 0.1) * PITCH * 0.42;
+function galaxyDraw(rand: () => number) {
+  const s = sampler('galaxy', GALAXY_MAP, GALAXY_GAMMA, true);
+  const R = GALAXY_MAP.R ?? 0.72;
+  const d = draw(s, rand);
+  return { r: Math.hypot(d.x, d.y) / R, th: Math.atan2(d.y, d.x), kind: d.cls as GalaxyKind, dn: d.dens };
+}
+
+function galaxyHeight(kind: GalaxyKind, r: number, g: () => number) {
+  // Bulge: a slightly flattened core; arms thin; haze a little thicker.
+  if (kind === 0) return g() * 0.06 * Math.max(0.2, 1 - r / 0.36);
+  if (kind === 2) return g() * 0.03;
+  return g() * 0.015;
 }
 
 function galaxyParams(count: number, seed: number): GalaxyParams {
@@ -163,43 +307,18 @@ function galaxyParams(count: number, seed: number): GalaxyParams {
     th: new Float32Array(count),
     h: new Float32Array(count),
     kind: new Uint8Array(count),
+    dn: new Float32Array(count),
     n1: new Float32Array(count),
     n2: new Float32Array(count),
     n3: new Float32Array(count),
   };
   for (let i = 0; i < count; i++) {
-    const roll = rand();
-    let r: number;
-    let th: number;
-    let h: number;
-    let kind: GalaxyKind;
-    if (roll < 0.13) {
-      // Bulge: a dense, slightly flattened core.
-      r = Math.min(0.3, Math.abs(g()) * 0.12);
-      th = rand() * Math.PI * 2;
-      h = g() * 0.06 * (1 - r / 0.36);
-      kind = 0;
-    } else if (roll < 0.84) {
-      // Arms: six logarithmic arms of differing length, widening outward,
-      // with a little feathering trailing off each one.
-      const arm = Math.floor(rand() * ARMS);
-      r = 0.1 + (ARM_LEN[arm] - 0.1) * Math.pow(rand(), 0.85);
-      const spread = 0.03 * (0.55 + r);
-      const feather = rand() < 0.12 ? -(0.08 + rand() * 0.18) : 0;
-      th = armAngle(arm, r) + (g() * spread) / r + feather;
-      h = g() * 0.015;
-      kind = rand() < 0.035 && r > 0.25 ? 3 : 1;
-    } else {
-      // Haze: the faint disk between the arms.
-      r = Math.min(1.1, 0.06 - Math.log(1 - rand() * 0.97) * 0.3);
-      th = rand() * Math.PI * 2;
-      h = g() * 0.03;
-      kind = 2;
-    }
-    p.r[i] = r;
-    p.th[i] = th;
-    p.h[i] = h;
-    p.kind[i] = kind;
+    const s = galaxyDraw(rand);
+    p.r[i] = s.r;
+    p.th[i] = s.th;
+    p.kind[i] = s.kind;
+    p.dn[i] = s.dn;
+    p.h[i] = galaxyHeight(s.kind, s.r, g);
     p.n1[i] = g();
     p.n2[i] = rand();
     p.n3[i] = g();
@@ -300,25 +419,28 @@ function renderGalaxy(
     const rr = p.r[i];
     let col: RGB;
     let w: number;
+    // Brighter parts of the photograph already hold more stars, so each one
+    // there is dimmed a little; otherwise the bulge sums to a white disc.
+    const tone = Math.min(1.6, 0.32 * Math.pow(Math.max(0.05, p.dn[i]), -0.45));
     if (k === 0) {
       col = mix(pal.core, pal.bulge, smooth(0.02, 0.22, rr));
       // Close up, a full-strength bulge blows out to white and swallows the
       // Core; dimmed, it becomes a glow the sun or moon sits inside.
-      w = (0.85 - 0.3 * smooth(0, 0.2, rr)) * (1 - coreDim * 0.9);
+      w = (0.7 - 0.25 * smooth(0, 0.2, rr)) * (1 - coreDim * 0.9);
     } else if (k === 1) {
       // Warm and dusty through the inner disk, turning blue out along the arms.
-      col = mix(pal.innerArm, i % 3 === 0 ? pal.armB : pal.arm, smooth(0.28, 0.58, rr));
-      w = 0.85 - rr * 0.25;
+      col = mix(pal.innerArm, i % 3 === 0 ? pal.armB : pal.arm, smooth(0.24, 0.55, rr));
+      w = 0.85 - rr * 0.2;
     } else if (k === 3) {
       col = pal.knot;
-      w = 0.9;
+      w = 1;
     } else {
-      col = mix(pal.bulge, pal.haze, smooth(0.12, 0.5, rr));
-      // Spiral dust lanes darken the warm inner disk between the arms.
-      const lane = 0.5 + 0.5 * Math.cos((p.th[i] - Math.log(Math.max(rr, 0.1) / 0.1) * PITCH * 0.42) * 6);
-      w = 0.34 * (1 - rr * 0.45) * (rr < 0.45 ? 0.35 + 0.65 * lane : 1);
+      // The faint disk between the arms; the dust lanes are simply where the
+      // photograph has no light, so no stars are drawn there.
+      col = mix(pal.bulge, pal.haze, smooth(0.1, 0.45, rr));
+      w = 0.6 * (1 - rr * 0.3);
     }
-    paint(f, i, col, w);
+    paint(f, i, col, Math.min(1, w * tone));
   }
 }
 
@@ -343,16 +465,23 @@ export function galaxyNodeFigures(order: number[], light: boolean) {
   const p = galaxyParams(n, 0x3e11);
   const rand = rng(0x51de);
   const g = gaussFrom(rand);
-  // `order` lists node indices most-important first; place them inside-out.
+  // Candidate spots on the photograph's arms, inside the radius the Ask
+  // screen's close-up can see, ordered inside-out; nodes take them by
+  // importance, so the Core's neighbours sit nearest the bulge.
+  const spots: { r: number; th: number }[] = [];
+  for (let tries = 0; spots.length < n && tries < n * 400; tries++) {
+    const s = galaxyDraw(rand);
+    if (s.kind === 1 && s.r > 0.09 && s.r < 0.73) spots.push({ r: s.r, th: s.th });
+  }
+  spots.sort((a, b) => a.r - b.r);
   order.forEach((nodeIdx, rank) => {
-    // Spread across every arm in turn, inside-out by importance, kept inside
-    // the radius the Ask screen's close-up can see.
-    const arm = rank % ARMS;
-    const r = 0.09 + Math.min(ARM_LEN[arm] - 0.1, 0.64) * Math.pow((rank + 0.5) / n, 0.85);
-    p.r[nodeIdx] = r;
-    p.th[nodeIdx] = armAngle(arm, r) + (g() * 0.028 * (0.6 + r)) / r;
+    const spot = spots[Math.min(spots.length - 1, Math.floor((rank / Math.max(1, n)) * spots.length))];
+    if (!spot) return;
+    p.r[nodeIdx] = spot.r;
+    p.th[nodeIdx] = spot.th;
     p.h[nodeIdx] = g() * 0.015;
     p.kind[nodeIdx] = 1;
+    p.dn[nodeIdx] = 0.5;
   });
   const galaxy = alloc(n);
   const dive = alloc(n);
@@ -363,130 +492,45 @@ export function galaxyNodeFigures(order: number[], light: boolean) {
   return { galaxy, dive, dust };
 }
 
-/* ── noise ──────────────────────────────────────────────────────────────── */
-
-function lattice(a: number, b: number) {
-  let n = (Math.imul(a, 374761393) + Math.imul(b, 668265263)) | 0;
-  n = Math.imul(n ^ (n >>> 13), 1274126177);
-  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
-}
-function noise2(x: number, y: number) {
-  const xi = Math.floor(x);
-  const yi = Math.floor(y);
-  const xf = x - xi;
-  const yf = y - yi;
-  const u = xf * xf * (3 - 2 * xf);
-  const v = yf * yf * (3 - 2 * yf);
-  const a = lattice(xi, yi);
-  const b = lattice(xi + 1, yi);
-  const c = lattice(xi, yi + 1);
-  const d = lattice(xi + 1, yi + 1);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-}
-function fbm(x: number, y: number, oct = 4) {
-  let s = 0;
-  let a = 0.5;
-  let f = 1;
-  for (let o = 0; o < oct; o++) {
-    s += a * noise2(x * f, y * f);
-    a *= 0.5;
-    f *= 2.03;
-  }
-  return s;
-}
-/** Ridged noise: bright thin filaments where the field crosses its midline. */
-const ridge = (x: number, y: number) => 1 - Math.abs(fbm(x, y, 4) * 2 - 1);
-
 /* ── Orion: Numbers / Proof (spread) and Connected (gathered) ──────────── */
 
-const ORION_S = OUTER * 1.2;
-
-const ORION_COLORS = {
-  dark: {
-    heart: hex('#f4f8ff'),
-    blue: hex('#8ec2ff'),
-    pink: hex('#ff5c8a'),
-    red: hex('#e0325c'),
-    rust: hex('#a8502e'),
-    haze: hex('#6f86c4'),
-  },
-  light: {
-    heart: hex('#3a5d9a'),
-    blue: hex('#3f6fb5'),
-    pink: hex('#c23a63'),
-    red: hex('#a3243f'),
-    rust: hex('#8a4422'),
-    haze: hex('#7f8bb0'),
-  },
-};
+const ORION_S = OUTER * 2.35;
 
 /**
- * An emission nebula after the Orion Nebula: a glowing blue-white heart, a
- * great pink-red cavity wall wrapping round it, rust dust lanes cutting
- * through, and a cool grey-blue haze at the edges.
+ * M42, the Orion Nebula, sampled from a photograph: the blown-out heart round
+ * the Trapezium, the great pink loop of the cavity wall, the dark bay cutting
+ * in beside the heart, M43's little comma above it and the grey-blue wings
+ * fading out. The heart sits at the origin, where the Core node is.
  *
- * Built by rejection sampling a noise-shaped density, so the gas has
- * filaments and holes rather than being a sprayed blob. Each point's sampled
- * position is kept as a parameter, so `spread` can open the same cloud out
- * across the whole screen (Numbers / Proof) and the Connected screen simply
- * gathers it back in.
+ * Each point's sampled position is kept as a parameter, so `spread` can open
+ * the same cloud out across the whole screen (Numbers / Proof) and the
+ * Connected screen simply gathers it back in.
  */
 function orionParams(count: number, seed: number) {
   const rand = rng(seed);
   const g = gaussFrom(rand);
+  const s = sampler('orion', ORION_MAP, 3.2);
   const x = new Float32Array(count);
   const y = new Float32Array(count);
   const z = new Float32Array(count);
-  const kind = new Uint8Array(count); // 0 heart, 1 body, 2 dust edge, 3 wings, 4 M43
+  const col = new Float32Array(count * 3);
+  const dens = new Float32Array(count);
+  const w = new Float32Array(count);
   const n1 = new Float32Array(count);
   const n2 = new Float32Array(count);
   for (let i = 0; i < count; i++) {
-    let px = 0;
-    let py = 0;
-    let k = 3;
-    const roll = rand();
-    if (roll < 0.035) {
-      // The Trapezium: a small, tight heart.
-      px = g() * 0.045;
-      py = g() * 0.045;
-      k = 0;
-    } else if (roll < 0.06) {
-      // M43: the small round companion below.
-      const a = rand() * Math.PI * 2;
-      const r = Math.sqrt(rand()) * 0.13;
-      px = -0.18 + Math.cos(a) * r;
-      py = -0.62 + Math.sin(a) * r;
-      k = 4;
-    } else {
-      for (let tries = 0; tries < 60; tries++) {
-        px = (rand() * 2 - 1) * 1.25;
-        py = (rand() * 2 - 1) * 1.05;
-        // The glowing body: lopsided up and to the right of the heart.
-        const body = Math.exp(-(((px - 0.18) / 0.62) ** 2) - (((py - 0.16) / 0.55) ** 2));
-        // The dark bay cutting in from the lower left, with a ragged edge.
-        const bayEdge = -0.08 + 0.12 * (fbm(px * 3 + 2, py * 3 - 5) - 0.5) + 0.35 * (px + 0.1);
-        const bay = smooth(-0.04, 0.06, bayEdge - py) * smooth(0.0, -0.25, px + 0.05);
-        // Long faint wings sweeping out to the left and top.
-        const r = Math.hypot(px, py);
-        const wing = Math.exp(-(((r - 0.85) / 0.28) ** 2)) * smooth(-0.2, 0.6, -px + py * 0.4) * 0.5;
-        const fil = Math.pow(ridge(px * 3.6 + 7.7, py * 3.6 + 2.2), 3);
-        const tex = 0.35 + 0.95 * fbm(px * 2.4 + 3.1, py * 2.4 - 1.7);
-        const dBody = body * (0.25 + 1.1 * fil) * tex * (1 - 0.92 * bay);
-        const dWing = wing * (0.3 + 0.9 * fil) * tex;
-        if (rand() < dBody + dWing) {
-          k = dBody >= dWing ? (fil > 0.55 ? 1 : body > 0.55 ? 1 : 2) : 3;
-          break;
-        }
-      }
-    }
-    x[i] = px;
-    y[i] = py;
-    z[i] = g() * (k === 3 ? 0.3 : 0.16);
-    kind[i] = k;
+    const d = draw(s, rand);
+    x[i] = d.x;
+    y[i] = d.y;
+    // Thicker where faint: the bright heart is a compact knot, the wings a veil.
+    z[i] = g() * (0.05 + 0.1 * (1 - d.dens));
+    col.set(d.col, i * 3);
+    dens[i] = d.dens;
     n1[i] = g();
     n2[i] = g();
   }
-  return { x, y, z, kind, n1, n2 };
+  normaliseWeights(w, dens, 0.46, -0.2);
+  return { x, y, z, col, w, n1, n2 };
 }
 
 function renderOrion(
@@ -495,7 +539,6 @@ function renderOrion(
   light: boolean,
   spread: number,
 ) {
-  const pal = light ? ORION_COLORS.light : ORION_COLORS.dark;
   const S = ORION_S;
   for (let i = 0; i < p.x.length; i++) {
     let a = p.x[i];
@@ -507,31 +550,8 @@ function renderOrion(
       c = c * (1 + 3 * spread);
     }
     put(f.pos, i, a * S, b * S, c * S);
-    const r = Math.hypot(p.x[i], p.y[i]);
-    const k = p.kind[i];
-    let col: RGB;
-    let w: number;
-    if (k === 0) {
-      col = pal.heart;
-      w = 0.8;
-    } else if (k === 4) {
-      col = mix(pal.pink, pal.heart, 0.25);
-      w = 0.7;
-    } else if (k === 1) {
-      // Blue-white close to the heart, pink through the body, deep red upper right.
-      col =
-        r < 0.22
-          ? mix(pal.heart, pal.blue, r / 0.22)
-          : mix(pal.pink, pal.red, smooth(0.2, 0.75, r + p.x[i] * 0.3));
-      w = r < 0.22 ? 0.7 : 1;
-    } else if (k === 2) {
-      col = mix(pal.red, pal.rust, 0.6);
-      w = 0.75;
-    } else {
-      col = mix(pal.blue, pal.haze, smooth(0.5, 1.1, r));
-      w = 0.55;
-    }
-    paint(f, i, col, w * (1 - 0.35 * spread));
+    const rgb: RGB = [p.col[i * 3], p.col[i * 3 + 1], p.col[i * 3 + 2]];
+    paint(f, i, light ? ink(rgb) : rgb, p.w[i] * (1 - 0.35 * spread));
   }
 }
 
@@ -548,210 +568,53 @@ export function orionFigures(count: number, light: boolean, seed = 0x0410) {
 
 const EYE_R = OUTER * 1.08;
 
-const EYE_COLORS = {
-  dark: {
-    star: hex('#ffffff'),
-    deep: hex('#123a8a'),
-    blue: hex('#3f86ff'),
-    teal: hex('#7cc4ff'),
-    gold: hex('#ffc25a'),
-    orange: hex('#ff7f2a'),
-    red: hex('#d4421c'),
-    haze: hex('#8a2416'),
-  },
-  light: {
-    star: hex('#2c4f8a'),
-    deep: hex('#1d3f7a'),
-    blue: hex('#2f6ab0'),
-    teal: hex('#3d8fb5'),
-    gold: hex('#b8761f'),
-    orange: hex('#c4561c'),
-    red: hex('#9b2d17'),
-    haze: hex('#7a2a18'),
-  },
-};
-
 /**
- * The Helix, after the VISTA image: a thick grainy ring burning gold on its
- * inner edge through orange to red, fine radial fibrils combed inward (blue)
- * and outward (red) from it, a deep blue interior that darkens toward the
- * centre, a faint second loop and a wide rust haze beyond. Slightly oval and
- * tilted, the way it always looks. The Core sits in the middle as the star.
+ * The Helix (NGC 7293), sampled from ESO's VISTA image: the thick ring burning
+ * gold to orange, the cometary knots combed radially through it, the blue
+ * interior darkening toward the centre and the wide rust haze beyond. The
+ * central star is at the origin, which is where the Core node sits.
  */
 export function eyeFigure(count: number, light: boolean, seed = 0xe7e1): Figure {
   const f = alloc(count);
   const rand = rng(seed);
   const g = gaussFrom(rand);
-  const pal = light ? EYE_COLORS.light : EYE_COLORS.dark;
-  const SPOKES = 260;
-  const tilt = -0.38;
-  const ct = Math.cos(tilt);
-  const st = Math.sin(tilt);
+  const s = sampler('helix', HELIX_MAP, 2.0);
+  const S = EYE_R * 1.7;
+  const dens = new Float32Array(count);
   for (let i = 0; i < count; i++) {
-    const roll = rand();
-    let r: number;
-    let th = rand() * Math.PI * 2;
-    let col: RGB;
-    let w: number;
-    if (roll < 0.38) {
-      // The ring: clumpy in angle, grainy in radius.
-      for (let k = 0; k < 6; k++) {
-        th = rand() * Math.PI * 2;
-        if (rand() < 0.3 + 0.8 * fbm(Math.cos(th) * 3.4 + 5, Math.sin(th) * 3.4 + 2)) break;
-      }
-      r = 0.8 + g() * 0.075 + (fbm(Math.cos(th) * 5, Math.sin(th) * 5) - 0.5) * 0.12;
-      const t = smooth(0.66, 0.98, r);
-      col = t < 0.5 ? mix(pal.gold, pal.orange, t * 2) : mix(pal.orange, pal.red, (t - 0.5) * 2);
-      w = 1;
-    } else if (roll < 0.58) {
-      // Fibrils: radial streaks either side of the ring.
-      th = (Math.floor(rand() * SPOKES) / SPOKES) * Math.PI * 2 + g() * 0.004;
-      if (rand() < 0.55) {
-        r = 0.5 + rand() * 0.24;
-        col = mix(pal.teal, pal.gold, smooth(0.55, 0.74, r));
-        w = 0.8;
-      } else {
-        r = 0.9 + Math.pow(rand(), 1.4) * 0.3;
-        col = mix(pal.orange, pal.haze, smooth(0.9, 1.2, r));
-        w = 0.7;
-      }
-    } else if (roll < 0.8) {
-      // Interior: deep blue, darker toward the centre, with faint radial grain.
-      r = 0.18 + 0.5 * Math.sqrt(rand());
-      th = (Math.floor(rand() * SPOKES) / SPOKES) * Math.PI * 2 + g() * 0.02;
-      col = mix(pal.deep, pal.blue, smooth(0.15, 0.55, r));
-      col = mix(col, pal.teal, smooth(0.5, 0.68, r) * 0.6);
-      w = 0.35 + 0.5 * smooth(0.18, 0.6, r);
-    } else if (roll < 0.86) {
-      // A faint second loop, offset, the Helix's outer coil.
-      r = 1.18 + g() * 0.04;
-      th = rand() * Math.PI * 1.4 + 2.2;
-      col = mix(pal.orange, pal.red, 0.6);
-      w = 0.32;
-    } else {
-      // Wide rust haze.
-      r = 1.0 + Math.abs(g()) * 0.55;
-      col = pal.haze;
-      w = 0.32 * (1.8 - r);
-    }
-    const a0 = Math.cos(th) * r * EYE_R * 1.1;
-    const b0 = Math.sin(th) * r * EYE_R * 0.9;
-    put(f.pos, i, a0 * ct - b0 * st, a0 * st + b0 * ct, g() * EYE_R * 0.08);
-    paint(f, i, col, Math.max(0.06, w));
+    const d = draw(s, rand);
+    const r = Math.hypot(d.x, d.y);
+    put(f.pos, i, d.x * S, d.y * S, g() * EYE_R * (0.05 + 0.08 * r));
+    paint(f, i, light ? ink(d.col) : d.col, 0);
+    dens[i] = d.dens;
   }
+  normaliseWeights(f.w, dens, 0.34);
   return f;
 }
 
 /* ── Butterfly: Other Lens ──────────────────────────────────────────────── */
 
-const WING_L = OUTER * 1.55;
-const WING_H = OUTER * 1.05;
-
-const BUTTERFLY_COLORS = {
-  dark: {
-    heart: hex('#ffffff'),
-    ice: hex('#bfe0ff'),
-    blue: hex('#6fa8ff'),
-    gold: hex('#ffbf5c'),
-    orange: hex('#ff7a2c'),
-    red: hex('#e2441e'),
-    ember: hex('#9c2a14'),
-  },
-  light: {
-    heart: hex('#5b2d5e'),
-    ice: hex('#3f6fa8'),
-    blue: hex('#2f6ab0'),
-    gold: hex('#b8761f'),
-    orange: hex('#c4561c'),
-    red: hex('#a8341a'),
-    ember: hex('#7a2412'),
-  },
-};
-
 /**
- * NGC 6302, after the Hubble image: two great billowing wings pinched at a
- * white-hot waist, ice-blue glow close to the centre, gold filaments combed
- * out along each wing, the wing walls burning orange to red with darker
- * dusty patches, ragged flames past the tips, and a faint pale jet crossing
- * the waist. One wing longer than the other. Set on the diagonal by TILT.
+ * NGC 6302, the Butterfly, sampled from the Hubble image: two great wings
+ * pinched at a white-hot waist, ragged red flame along their edges, dark
+ * dust lanes cutting through and the bright knotted lobes either side of the
+ * centre. The waist is at the origin.
  */
 export function butterflyFigure(count: number, light: boolean, seed = 0xb7f1): Figure {
   const f = alloc(count);
   const rand = rng(seed);
   const g = gaussFrom(rand);
-  const pal = light ? BUTTERFLY_COLORS.light : BUTTERFLY_COLORS.dark;
-  const FIL = 36;
-  const fil = Array.from({ length: FIL }, () => rand() * 2 - 1);
-  /** Half-height at fraction t along a wing: pinched at the waist, billowing wide at the end. */
-  const prof = (t: number, side: number) => {
-    const base = Math.pow(Math.sin(Math.PI * Math.min(0.97, 0.03 + t * 0.95)), 0.5) * (0.32 + 0.9 * t);
-    return base * (0.85 + 0.3 * fbm(t * 3.2 + (side > 0 ? 7 : 1), side * 2.1));
-  };
+  const s = sampler('butterfly', BUTTERFLY_MAP, 2.2);
+  const S = OUTER * 3.2;
+  const dens = new Float32Array(count);
   for (let i = 0; i < count; i++) {
-    const roll = rand();
-    const side = rand() < 0.53 ? 1 : -1;
-    const len = WING_L * (side > 0 ? 1 : 0.86);
-    let a: number;
-    let b: number;
-    let t: number;
-    let col: RGB;
-    let w: number;
-    if (roll < 0.05) {
-      // The waist: white-hot knot with an ice-blue glow.
-      const rr = Math.abs(g()) * OUTER * 0.08;
-      const ang = rand() * Math.PI * 2;
-      a = Math.cos(ang) * rr;
-      b = Math.sin(ang) * rr * 1.4;
-      t = 0;
-      col = mix(pal.heart, pal.ice, Math.min(1, rr / (OUTER * 0.08)));
-      w = 0.9;
-    } else if (roll < 0.09) {
-      // The pale jet crossing the waist.
-      a = g() * OUTER * 0.03;
-      b = (rand() * 2 - 1) * WING_H * 1.15;
-      t = 0;
-      col = mix(pal.ice, pal.heart, 0.4);
-      w = 0.32 * (1 - Math.abs(b) / (WING_H * 1.15));
-    } else if (roll < 0.52) {
-      // Filaments combed out along the wing.
-      const k = fil[Math.floor(rand() * FIL)];
-      t = Math.pow(rand(), 0.8);
-      const hgt = prof(t, side) * WING_H;
-      a = side * t * len;
-      b = (k + Math.sin(t * 6 + k * 5) * 0.08) * hgt + g() * OUTER * 0.015;
-      const edge = Math.abs(k);
-      col = t < 0.18 ? mix(pal.ice, pal.gold, t / 0.18) : mix(pal.gold, pal.orange, smooth(0.2, 0.75, t));
-      col = mix(col, pal.red, smooth(0.6, 1, edge) * 0.7);
-      w = 0.95 - 0.25 * t;
-    } else if (roll < 0.74) {
-      // Wing walls, lumpy, burning orange to red.
-      t = Math.pow(rand(), 0.75);
-      const hgt = prof(t, side) * WING_H;
-      a = side * t * len + g() * OUTER * 0.02;
-      b = (rand() < 0.5 ? -1 : 1) * hgt * (0.9 + g() * 0.06);
-      col = mix(pal.orange, pal.red, smooth(0.2, 0.8, t));
-      w = 0.95;
-    } else if (roll < 0.92) {
-      // Fill, with darker dusty patches.
-      t = rand();
-      const hgt = prof(t, side) * WING_H;
-      a = side * t * len;
-      b = (rand() * 2 - 1) * hgt * 0.88;
-      const dust = fbm(a / 70 + 3, b / 70 - 2) > 0.6;
-      col = dust ? pal.ember : mix(pal.gold, pal.orange, t);
-      if (t < 0.15) col = mix(pal.blue, col, t / 0.15);
-      w = dust ? 0.4 : 0.55;
-    } else {
-      // Ragged flames past the tips.
-      t = 1 + Math.abs(g()) * 0.2;
-      a = side * t * len;
-      b = g() * WING_H * 0.75;
-      col = mix(pal.red, pal.ember, rand());
-      w = 0.5;
-    }
-    put(f.pos, i, a, b, g() * OUTER * 0.12 * (0.4 + Math.min(1, t)));
-    paint(f, i, col, w);
+    const d = draw(s, rand);
+    // The wings billow toward and away from us more the further out they go.
+    put(f.pos, i, d.x * S, d.y * S, g() * OUTER * (0.04 + 0.14 * Math.abs(d.x)));
+    paint(f, i, light ? ink(d.col) : d.col, 0);
+    dens[i] = d.dens;
   }
+  normaliseWeights(f.w, dens, 0.42, -0.65);
   return f;
 }
 

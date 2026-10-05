@@ -15,6 +15,13 @@ import type { Palette } from '@/lib/theme';
  * when the admin changes the sky colours — see Palette['sky'] in theme.ts).
  * Nothing here animates; the drifting stars and the figures move in front of
  * it, which is what makes it read as distance.
+ *
+ * Over it drift a few long, faint strokes of colour (SkyWisps) — rose, teal,
+ * violet, amber — the way real sky is never one flat colour. They are not
+ * fixed in place: each wanders on its own slow loop and shifts a little as
+ * the page scrolls, so the sky changes with the reader instead of sitting
+ * there as a stain in one corner. Strong local colour still belongs to the
+ * figures (GraphJourney's GLOW).
  */
 
 function rng(seed: number) {
@@ -84,6 +91,74 @@ function paint(canvas: HTMLCanvasElement, sky: Palette['sky']) {
   }
 }
 
+/**
+ * The drifting strokes. Each is a long soft ellipse of colour at very low
+ * alpha, screen-blended over the navy. Position, size and angle are in
+ * viewport units; `dur` is its wander loop in seconds and `par` how far it
+ * slides (px) as the page scrolls. Alphas stay under ~0.1: they tint, they
+ * never become a colour of their own.
+ */
+const WISPS: {
+  x: number; y: number; w: number; h: number; rot: number;
+  col: string; a: number; dur: number; delay: number; par: number;
+}[] = [
+  { x: 8, y: 22, w: 70, h: 14, rot: -18, col: '170,60,120', a: 0.09, dur: 95, delay: 0, par: 70 },
+  { x: 55, y: 8, w: 60, h: 11, rot: 12, col: '50,130,160', a: 0.075, dur: 120, delay: -40, par: -55 },
+  { x: 30, y: 58, w: 85, h: 16, rot: -8, col: '105,70,190', a: 0.08, dur: 110, delay: -20, par: 90 },
+  { x: 62, y: 70, w: 55, h: 12, rot: 24, col: '190,110,60', a: 0.055, dur: 85, delay: -60, par: -70 },
+  { x: -10, y: 82, w: 65, h: 13, rot: 6, col: '60,90,200', a: 0.08, dur: 130, delay: -75, par: 50 },
+  { x: 72, y: 38, w: 45, h: 18, rot: -30, col: '160,50,80', a: 0.05, dur: 100, delay: -15, par: -40 },
+];
+
+function SkyWisps() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => el.style.setProperty('--sky-s', String(Math.sin(window.scrollY / 1400))));
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className="sky-wisps pointer-events-none fixed inset-0 overflow-hidden"
+      style={{ zIndex: -1 }}
+    >
+      {WISPS.map((w, i) => (
+        <div
+          key={i}
+          className="sky-wisp-slide"
+          style={{ ['--par' as string]: `${w.par}px` }}
+        >
+          <div
+            className="sky-wisp"
+            style={{
+              left: `${w.x}vw`,
+              top: `${w.y}vh`,
+              width: `${w.w}vw`,
+              height: `${w.h}vh`,
+              ['--rot' as string]: `${w.rot}deg`,
+              background: `radial-gradient(closest-side, rgba(${w.col},${w.a}) 0%, rgba(${w.col},${(w.a * 0.45).toFixed(3)}) 45%, rgba(${w.col},0) 100%)`,
+              animationDuration: `${w.dur}s`,
+              animationDelay: `${w.delay}s`,
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SkyBackdrop() {
   const ref = useRef<HTMLCanvasElement>(null);
   const { sky } = usePalette();
@@ -114,11 +189,14 @@ export function SkyBackdrop() {
   }, [sky]);
 
   return (
-    <canvas
-      ref={ref}
-      aria-hidden
-      className="pointer-events-none fixed inset-0 h-screen w-screen"
-      style={{ background: 'var(--surface)', zIndex: -1 }}
-    />
+    <>
+      <canvas
+        ref={ref}
+        aria-hidden
+        className="pointer-events-none fixed inset-0 h-screen w-screen"
+        style={{ background: 'var(--surface)', zIndex: -1 }}
+      />
+      <SkyWisps />
+    </>
   );
 }

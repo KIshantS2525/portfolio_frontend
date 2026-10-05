@@ -2,8 +2,9 @@
 import { lazy, Suspense } from 'react';
 import { StudioNav } from '@/components/studio/StudioNav';
 import { ProjectTimeline } from '@/components/work/ProjectTimeline';
-import { ScrollExpand } from '@/components/studio/ScrollExpand';
 import { CardSpotlight } from '@/components/studio/CardSpotlight';
+import { LiveDemo } from '@/components/diagramstudio/LiveDemo';
+import { DocsDemo } from '@/components/diagramstudio/DocsDemo';
 import { Stack } from '@/components/minimal/Stack';
 import { About } from '@/components/minimal/About';
 import { Contact } from '@/components/minimal/Contact';
@@ -79,15 +80,16 @@ export default function Home() {
               </p>
             </CardSpotlight>
           </Reveal>
-          <div className="mt-[36px]">
-            <WhenVisible rootMargin="200px">
-              <ScrollExpand
-                src="/studio/diagramstudio-hero.svg"
-                alt="The DiagramStudio canvas with an architecture diagram open"
-                caption="Placeholder. Replace with a 2400px-wide screenshot of the real canvas."
-              />
-            </WhenVisible>
-          </div>
+          <Reveal>
+            <div className="mt-[36px]">
+              <LiveDemo />
+            </div>
+          </Reveal>
+          <Reveal>
+            <div className="mt-[96px]">
+              <DocsDemo />
+            </div>
+          </Reveal>
         </section>
 
         {/*

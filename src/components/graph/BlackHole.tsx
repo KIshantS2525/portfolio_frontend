@@ -920,7 +920,14 @@ export function BlackHoleHeroSection({
     let clock = reduced ? 6 : 0;
     let lastFrame = 0;
     let running = true;
-    let visible = true;
+    // Drawing needs both: the canvas on screen *and* the tab in front. They
+    // are tracked separately because coming back to the tab used to set the
+    // one flag to true outright, and the ray tracer then ran full-screen
+    // forever even with the reader parked at the bottom of the page — the
+    // GPU load that left the doors there painting blank.
+    let inView = true;
+    let pageShown = !document.hidden;
+    let visible = inView && pageShown;
     let raf = 0;
 
     function pass(prog: Prog, target: Target | null) {
@@ -1119,12 +1126,12 @@ export function BlackHoleHeroSection({
     ro.observe(host);
 
     const io = new IntersectionObserver(
-      (entries) => { visible = entries[0]?.isIntersecting ?? true; },
+      (entries) => { inView = entries[0]?.isIntersecting ?? true; visible = inView && pageShown; },
       { threshold: 0 }
     );
     io.observe(host);
 
-    const onVisibility = () => { visible = !document.hidden; lastFrame = 0; };
+    const onVisibility = () => { pageShown = !document.hidden; visible = inView && pageShown; lastFrame = 0; };
     const onLost = (e: Event) => {
       // Asking for the context back is only worth it if it comes back working.
       // Until it does the canvas is hidden, because a dead one paints white.
