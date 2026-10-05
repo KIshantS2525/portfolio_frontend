@@ -111,7 +111,7 @@ export default function Home() {
           arriving visitor to choose between two experiences before they have
           seen either.
         */}
-        <section className="shell flex flex-wrap gap-[16px] pt-[96px]">
+        <section className="shell grid gap-[18px] pt-[96px] md:grid-cols-2">
           <ArchiveDoor />
           <GameDoor />
         </section>

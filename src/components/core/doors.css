@@ -1,0 +1,208 @@
+/* src/components/core/doors.css
+ *
+ * The two doors at the foot of the homepage. Each one deliberately does NOT
+ * match the site: it is dressed in the room it leads to, so it looks like a
+ * piece of somewhere else left lying on the page. That oddness is the point —
+ * it should make a reader wonder why it is there and click to find out.
+ */
+
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('../../fonts/silkscreen-latin-400-normal.woff2') format('woff2');
+}
+
+.door {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  isolation: isolate;
+  min-height: 380px;
+  padding: 28px 30px 24px;
+}
+
+.door-art {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  margin-top: 16px;
+}
+.door-art img {
+  width: 100%;
+  height: 100%;
+  max-height: 290px;
+  object-fit: contain;
+}
+
+/* ── The Archive: its lit sign over a dark locker corridor ─────────────── */
+
+.door-archive {
+  --lamp: #ffd9a0;
+  --strip: #f6e6c6;
+  border-radius: 2px;
+  background:
+    /* the strip light's spill, from the top edge down */
+    radial-gradient(120% 70% at 50% -8%, rgba(255, 217, 160, 0.34), transparent 62%),
+    /* a warm floor at the bottom, like the corridor's planks */
+    linear-gradient(to top, rgba(201, 150, 82, 0.22), transparent 30%),
+    linear-gradient(180deg, #2a2620 0%, #17161a 55%, #14161a 100%);
+  border: 1px solid #3d382f;
+  box-shadow:
+    inset 0 0 0 6px #1d1b18,
+    inset 0 0 0 7px #3a352c,
+    0 24px 60px rgba(0, 0, 0, 0.55);
+  transition:
+    box-shadow 400ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* The strip light itself: a bright bar along the top of the frame. */
+.door-archive::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  right: 7px;
+  height: 4px;
+  background: var(--strip);
+  box-shadow:
+    0 0 14px 2px rgba(255, 217, 160, 0.75),
+    0 0 40px 6px rgba(255, 217, 160, 0.25);
+  z-index: 1;
+}
+.door-archive .door-title {
+  font-family: 'Fraunces Variable', 'Fraunces Name', Georgia, serif;
+  font-variation-settings: 'opsz' 144;
+  font-weight: 600;
+  font-size: clamp(34px, 3.4vw, 46px);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: #fbf3e2;
+  text-align: center;
+  text-shadow:
+    0 0 18px rgba(255, 217, 160, 0.55),
+    0 2px 0 rgba(0, 0, 0, 0.35);
+  margin-top: 14px;
+}
+.door-archive .door-sub {
+  margin-top: 10px;
+  text-align: center;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: rgba(246, 224, 182, 0.7);
+}
+.door-archive .door-art img {
+  opacity: 0.88;
+  filter: drop-shadow(0 0 6px rgba(255, 217, 160, 0.35));
+  transition:
+    opacity 400ms ease,
+    filter 400ms ease,
+    transform 600ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Hover: the lights come up. */
+.door-archive:hover,
+.door-archive:focus-visible {
+  transform: translateY(-3px);
+  box-shadow:
+    inset 0 0 0 6px #1d1b18,
+    inset 0 0 0 7px #5a5042,
+    0 30px 80px rgba(0, 0, 0, 0.6),
+    0 0 60px rgba(255, 217, 160, 0.12);
+}
+.door-archive:hover .door-art img,
+.door-archive:focus-visible .door-art img {
+  opacity: 1;
+  filter: drop-shadow(0 0 10px rgba(255, 217, 160, 0.6));
+  transform: scale(1.03);
+}
+
+/* ── Survival: a block of grass and dirt ──────────────────────────────── */
+
+.door-survival {
+  --px: 4px; /* one "pixel" of the texture */
+  border-radius: 0;
+  image-rendering: pixelated;
+  background-color: #6b4423;
+  /* Dirt: an 8×8 pixel tile, scaled up and never smoothed. */
+  background-image:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.28) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%236b4423'/%3E%3Crect x='1' y='0' width='1' height='1' fill='%23866043'/%3E%3Crect x='5' y='1' width='2' height='1' fill='%23593a1e'/%3E%3Crect x='3' y='2' width='1' height='1' fill='%23866043'/%3E%3Crect x='0' y='3' width='1' height='1' fill='%23593a1e'/%3E%3Crect x='6' y='3' width='1' height='1' fill='%23866043'/%3E%3Crect x='2' y='4' width='2' height='1' fill='%23593a1e'/%3E%3Crect x='7' y='5' width='1' height='1' fill='%23593a1e'/%3E%3Crect x='4' y='6' width='1' height='1' fill='%23866043'/%3E%3Crect x='1' y='7' width='1' height='1' fill='%23866043'/%3E%3Crect x='5' y='7' width='1' height='1' fill='%23593a1e'/%3E%3C/svg%3E");
+  background-size:
+    100% 100%,
+    calc(var(--px) * 8) calc(var(--px) * 8);
+  /* Chunky stepped edge instead of a hairline border. */
+  box-shadow:
+    inset 0 0 0 var(--px) #3b2412,
+    inset 0 calc(var(--px) * -2) 0 calc(var(--px) * 1) rgba(0, 0, 0, 0.25),
+    0 calc(var(--px) * 2) 0 #241509;
+  padding-top: calc(var(--px) * 12);
+  transition: transform 160ms steps(2);
+}
+/* The grass cap: a green band with a ragged, pixel-stepped drip edge. */
+.door-survival::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: calc(var(--px) * 7);
+  background-color: #5dbb46;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='7' shape-rendering='crispEdges'%3E%3Crect width='8' height='4' fill='%235dbb46'/%3E%3Crect x='2' y='0' width='1' height='1' fill='%2379d45e'/%3E%3Crect x='6' y='1' width='1' height='1' fill='%2379d45e'/%3E%3Crect x='4' y='2' width='1' height='1' fill='%234a9a37'/%3E%3Crect x='0' y='4' width='2' height='1' fill='%234a9a37'/%3E%3Crect x='3' y='4' width='3' height='1' fill='%235dbb46'/%3E%3Crect x='7' y='4' width='1' height='2' fill='%234a9a37'/%3E%3Crect x='4' y='5' width='1' height='1' fill='%235dbb46'/%3E%3Crect x='0' y='5' width='2' height='1' fill='%236b4423'/%3E%3Crect x='2' y='4' width='1' height='3' fill='%236b4423'/%3E%3Crect x='5' y='5' width='2' height='2' fill='%236b4423'/%3E%3Crect x='0' y='6' width='2' height='1' fill='%236b4423'/%3E%3Crect x='3' y='5' width='1' height='2' fill='%236b4423'/%3E%3Crect x='4' y='6' width='1' height='1' fill='%236b4423'/%3E%3Crect x='7' y='6' width='1' height='1' fill='%236b4423'/%3E%3C/svg%3E");
+  background-size: calc(var(--px) * 8) calc(var(--px) * 7);
+  background-repeat: repeat-x;
+  background-color: transparent;
+  z-index: 0;
+}
+.door-survival .door-title {
+  position: relative;
+  font-family: 'Silkscreen', ui-monospace, monospace;
+  font-size: clamp(28px, 2.8vw, 38px);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  text-transform: uppercase;
+  /* The hard, offset, unblurred drop shadow every block game uses. */
+  text-shadow: calc(var(--px) * 0.75) calc(var(--px) * 0.75) 0 #3f3f3f;
+  text-align: center;
+}
+.door-survival .door-sub {
+  position: relative;
+  margin-top: 10px;
+  text-align: center;
+  font-family: 'Silkscreen', ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: #ffe66d;
+  text-shadow: 2px 2px 0 #3f3f00;
+  animation: door-blink 1.2s steps(1) infinite;
+}
+@keyframes door-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.door-survival .door-art img {
+  filter: drop-shadow(0 calc(var(--px) * 2) 0 rgba(0, 0, 0, 0.35));
+  transition: transform 220ms steps(3);
+}
+/* Hover: everything moves in whole pixels, never smoothly. */
+.door-survival:hover,
+.door-survival:focus-visible {
+  transform: translateY(calc(var(--px) * -1));
+}
+.door-survival:hover .door-art img,
+.door-survival:focus-visible .door-art img {
+  transform: translateY(calc(var(--px) * -2)) scale(1.04);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .door-survival .door-sub {
+    animation: none;
+  }
+}

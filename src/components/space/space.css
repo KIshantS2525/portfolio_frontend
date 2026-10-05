@@ -15,10 +15,10 @@
   --metal: #a6adbd;
 }
 
-/* ── Rocket (shuttle stack) ───────────────────────────────────────── */
+/* ── Rocket (cartoon) ───────────────────────────────────────── */
 
 .rk {
-  --boost: 0.6;
+  --boost: 0.75;
   --lean: 0deg;
   --sx: 1;
   --sy: 1;
@@ -42,54 +42,39 @@
   transform: rotate(var(--lean)) scale(var(--sx), var(--sy));
 }
 .rk-body {
-  stroke: #1d2236;
-  stroke-width: 1.4;
+  stroke: var(--ink);
+  stroke-width: 2.4;
   stroke-linejoin: round;
   stroke-linecap: round;
   animation: rk-rumble 90ms steps(2) infinite;
 }
-.rk-srb rect,
-.rk-srb path {
-  fill: #f1f2f6;
-}
-.rk-srb-band {
-  fill: none;
-  stroke: #b9bfcc;
-  stroke-width: 1.2;
-}
-.rk-skirt {
-  fill: #3a3f50;
-}
-.rk-tank {
-  fill: #e8732c;
-}
-.rk-tank-line {
-  fill: none;
-  stroke: #c45a1c;
-  stroke-width: 1.2;
-}
-.rk-wing {
-  fill: #e9ebf1;
-}
-.rk-wing-edge {
-  fill: none;
-  stroke: #3a3f50;
-  stroke-width: 3.2;
-}
-.rk-orbiter {
+.rk-hull {
   fill: #ffffff;
 }
-.rk-orbiter-nose {
-  fill: #3a3f50;
+.rk-shade {
+  fill: #dfe3ee;
+  stroke: none;
+}
+.rk-nose,
+.rk-band {
+  fill: #ef4d3c;
 }
 .rk-fin {
-  fill: #c9ced8;
+  fill: #9ec3ff;
 }
-.rk-window {
-  fill: #3fc3d1;
+.rk-nozzle {
+  fill: #8a92a6;
 }
-.rk-engine {
-  fill: #6c7284;
+.rk-port-rim {
+  fill: #e7eaf2;
+}
+.rk-port {
+  fill: #3a8dde;
+}
+.rk-glint {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2;
 }
 .rk-flame {
   transform-origin: 12px 40px;
@@ -100,6 +85,9 @@
 }
 .rk-f1 {
   fill: #ff8a1f;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
   animation: rk-flick 110ms ease-in-out infinite alternate;
 }
 .rk-f2 {
@@ -136,19 +124,22 @@
   height: 22px;
   margin: -11px 0 0 -11px;
   border-radius: 50%;
-  background: radial-gradient(circle at 40% 40%, #ffd27a 0%, #ff9a3c 45%, transparent 72%);
+  /* Cartoon smoke: a white ball with a cool grey underside. */
+  background: radial-gradient(circle at 38% 34%, #ffffff 0%, #f3f4f9 45%, #c9cedd 70%, transparent 72%);
   opacity: 0;
   pointer-events: none;
 }
 .rk-puff:nth-child(even) {
-  background: radial-gradient(circle at 40% 40%, #c79bd8 0%, #7f5aa6 50%, transparent 72%);
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
 }
 .rk-puff.go {
   animation: rk-puff 1150ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
 @keyframes rk-puff {
   0% {
-    opacity: 0.75;
+    opacity: 0.95;
     transform: translate(0, 0) scale(0.35);
   }
   100% {

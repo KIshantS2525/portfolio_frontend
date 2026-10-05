@@ -4,27 +4,35 @@ import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Mark } from '@/components/core/Header';
 import { useProfile } from '@/lib/useContent';
+import { OPEN_PROJECT_EVENT } from '@/lib/events';
 
 /**
  * Fixed, not absolute — the original card nav scrolls away with the page, which
- * is the wrong behaviour for a long maximalist route. The hardcoded "Get
- * Started" button is the Minimal toggle instead.
+ * is the wrong behaviour for a long maximalist route.
+ *
+ * A link is either an in-page anchor (`href`) or a project (`project`, a slug).
+ * Project links open that project's sheet directly instead of all dumping the
+ * reader at the top of the timeline — see OPEN_PROJECT_EVENT in
+ * lib/events.ts.
  */
-const CARDS = [
+type NavLink = { label: string; href?: string; project?: string };
+
+const CARDS: { title: string; links: NavLink[] }[] = [
   {
     title: 'Work',
     links: [
-      { label: 'Recall', href: '#work' },
-      { label: 'OmniTrace', href: '#work' },
-      { label: 'DiagramStudio', href: '#work' },
+      { label: 'Recall', project: 'recall' },
+      { label: 'OmniTrace', project: 'omnitrace' },
+      { label: 'DiagramStudio', project: 'diagramstudio' },
+      { label: 'All projects', href: '#work' },
     ],
   },
   {
     title: 'Proof',
     links: [
       { label: 'PPE detection', href: '#proof' },
-      { label: 'Knowledge graph', href: '#graph' },
-      { label: 'Work', href: '#work' },
+      { label: 'English → diagram', href: '#proof' },
+      { label: 'Ask my AI', href: '#ask' },
     ],
   },
 ];
@@ -39,7 +47,7 @@ export function StudioNav() {
    * one place in this file that could never see an admin edit, however the
    * component re-rendered. Built here instead, from the live profile.
    */
-  const cards = [
+  const cards: { title: string; links: NavLink[] }[] = [
     ...CARDS,
     {
       title: 'Reach me',
@@ -50,6 +58,44 @@ export function StudioNav() {
       ],
     },
   ];
+
+  /*
+   * The nav's Ask AI pill steps aside while the hero's own "Ask my AI about
+   * me" button is on screen — two identical filled pills in one view compete
+   * for the same click. The hero button is found by its data attribute rather
+   * than a ref because it lives inside the lazily-loaded graph chunk, which
+   * may not exist yet when this mounts; reading it on every scroll handles
+   * that for free. Lenis drives window.scrollTo, so native scroll events fire.
+   */
+  const [heroCtaVisible, setHeroCtaVisible] = useState(true);
+  useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      const el = document.querySelector('[data-hero-cta]');
+      if (!el) {
+        // Not mounted yet (lazy chunk) — treat the top of the page as hero.
+        setHeroCtaVisible(window.scrollY < window.innerHeight * 0.5);
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      setHeroCtaVisible(r.bottom > 80 && r.top < window.innerHeight);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(check);
+    };
+    check();
+    // The lazy hero can land a beat after mount; re-check once it has.
+    const t = window.setTimeout(check, 800);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
@@ -110,9 +156,25 @@ export function StudioNav() {
               >
                 Survival
               </Link>
-              <a href="#ask" className="pill !px-[20px] !py-[11px]">
-                Ask AI
-              </a>
+              <span
+                className="inline-flex transition-[max-width,opacity,margin] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                style={{
+                  maxWidth: heroCtaVisible ? 0 : 140,
+                  opacity: heroCtaVisible ? 0 : 1,
+                  marginLeft: heroCtaVisible ? -18 : 0,
+                  // Clip only while hidden, so the focus ring and hover lift are never cut off.
+                  overflow: heroCtaVisible ? 'hidden' : 'visible',
+                }}
+                aria-hidden={heroCtaVisible}
+              >
+                <a
+                  href="#ask"
+                  tabIndex={heroCtaVisible ? -1 : 0}
+                  className="pill shrink-0 whitespace-nowrap !px-[20px] !py-[11px]"
+                >
+                  Ask AI
+                </a>
+              </span>
             </div>
           </div>
 
@@ -130,10 +192,18 @@ export function StudioNav() {
                       {c.links.map((l) => (
                         <li key={l.label}>
                           <a
-                            href={l.href}
-                            onClick={() => setOpen(false)}
-                            target={l.href.startsWith('http') ? '_blank' : undefined}
-                            rel={l.href.startsWith('http') ? 'noreferrer' : undefined}
+                            href={l.project ? '#work' : l.href}
+                            onClick={(e) => {
+                              setOpen(false);
+                              if (l.project) {
+                                e.preventDefault();
+                                window.dispatchEvent(
+                                  new CustomEvent(OPEN_PROJECT_EVENT, { detail: l.project }),
+                                );
+                              }
+                            }}
+                            target={l.href?.startsWith('http') ? '_blank' : undefined}
+                            rel={l.href?.startsWith('http') ? 'noreferrer' : undefined}
                             className="t-heading-2xs text-ash transition-colors hover:text-bone"
                             tabIndex={open ? 0 : -1}
                           >

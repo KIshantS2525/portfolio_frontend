@@ -30,6 +30,7 @@ import { prefillAsk } from '@/lib/ask';
 import { metrics } from '@/lib/content';
 import type { Project } from '@/lib/content';
 import { useAchievements, useProfile, useRoles } from '@/lib/useContent';
+import { nameClass } from '@/lib/nameFont';
 
 /**
  * ============================================================================
@@ -1545,7 +1546,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         {/* Hero — left, graph on the right. */}
         <div className="shell flex min-h-screen items-center">
           <div className="w-full max-w-[520px] pointer-events-auto">
-            <h1 className="t-display text-bone">
+            <h1 className={`${nameClass} text-bone`}>
               {first}
               <br />
               {rest.join(' ')}
@@ -1562,6 +1563,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
                   window.setTimeout(() => document.getElementById('ask-input')?.focus({ preventScroll: true }), 900);
                 }}
                 className="pill"
+                data-hero-cta
               >
                 Ask my AI about me
               </button>
@@ -1665,7 +1667,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
         */}
         <div className="shell flex min-h-screen items-center">
           <div className="w-full max-w-[640px] pointer-events-auto">
-            <h2 className="t-display text-bone">Ishant Shrivastava</h2>
+            <h2 className={`${nameClass} text-bone`}>{profile.name}</h2>
           </div>
         </div>
 
@@ -1735,7 +1737,7 @@ function MobileJourney({ projects }: { projects?: Project[] }) {
 
   return (
     <section id="graph" className="shell relative pt-[120px] scroll-mt-[96px]">
-      <h1 className="t-display text-bone">
+      <h1 className={`${nameClass} text-bone`}>
         {first}
         <br />
         {rest.join(' ')}
@@ -1749,6 +1751,7 @@ function MobileJourney({ projects }: { projects?: Project[] }) {
           type="button"
           onClick={() => askRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
           className="pill"
+          data-hero-cta
         >
           Ask my AI about me
         </button>

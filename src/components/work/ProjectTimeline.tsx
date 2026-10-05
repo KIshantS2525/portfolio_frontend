@@ -6,6 +6,7 @@ import type { Project } from '@/lib/content';
 import { useProjects } from '@/lib/useContent';
 import { ProjectSheet } from '@/components/work/ProjectSheet';
 import { Rocket } from '@/components/space/Rocket';
+import { OPEN_PROJECT_EVENT } from '@/lib/events';
 
 const PUFFS = 12;
 
@@ -72,6 +73,16 @@ export function ProjectTimeline() {
   );
   const [open, setOpen] = useState<number | null>(null);
   const desktop = useMedia('(min-width: 768px)');
+
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const slug = (e as CustomEvent<string>).detail;
+      const i = items.findIndex((p) => p.slug === slug);
+      if (i >= 0) setOpen(i);
+    };
+    window.addEventListener(OPEN_PROJECT_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_PROJECT_EVENT, onOpen);
+  }, [items]);
 
   const span = useMemo(() => {
     if (!items.length) return '';
@@ -209,7 +220,7 @@ function HorizontalTimeline({
         rocket.style.setProperty('--lean', `${lean.toFixed(2)}deg`);
         rocket.style.setProperty('--sx', sx.toFixed(3));
         rocket.style.setProperty('--sy', (1 / Math.sqrt(sx)).toFixed(3));
-        rocket.style.setProperty('--boost', (0.55 + Math.min(1.3, sp / 650)).toFixed(3));
+        rocket.style.setProperty('--boost', (0.8 + Math.min(1.1, sp / 650)).toFixed(3));
 
         // Smoke, left behind on the line while it is moving.
         if (!reduced && sp > 70 && now - puffAt > 70) {
