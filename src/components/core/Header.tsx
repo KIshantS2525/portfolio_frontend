@@ -1,3 +1,4 @@
+// frontend/src/components/core/Header.tsx
 /**
  * This used to also export a fixed <Header> with a Minimal/Studio toggle and
  * a "land where you left" localStorage redirect. Both routes are one route
@@ -6,18 +7,29 @@
  * the brand mark survives here, since <StudioNav> still uses it.
  */
 
-/** Brand mark. The only place a gradient is allowed. */
-export function Mark({ size = 18 }: { size?: number }) {
+/**
+ * Brand mark: your avatar — the full amber disc, crown included, with the
+ * hair breaking out over the top edge (the background is cut away, not the
+ * circle). Image lives in public/avatar/; the 256px file stays sharp up to
+ * ~85px on a 3× screen.
+ *
+ * The browser-tab icon is NOT this whole disc — a full portrait turns to
+ * mush at 16px. It is a tighter head crop of the same avatar, on the same
+ * amber: public/favicon.ico, favicon-16/32.png and apple-touch-icon.png,
+ * linked from index.html.
+ */
+export function Mark({ size = 32 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <defs>
-        <linearGradient id="mk" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" />
-          <stop offset="100%" stopColor="var(--tertiary)" />
-        </linearGradient>
-      </defs>
-      <path d="M12 2 L22 20 L2 20 Z" fill="url(#mk)" />
-      <path d="M12 9 L17 18 L7 18 Z" fill="var(--surface)" />
-    </svg>
+    <img
+      src="/avatar/avatar-256.webp"
+      width={size}
+      height={size}
+      alt=""
+      aria-hidden="true"
+      decoding="async"
+      draggable={false}
+      className="shrink-0 select-none"
+      style={{ width: size, height: size }}
+    />
   );
 }

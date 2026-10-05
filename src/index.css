@@ -804,3 +804,19 @@
     animation: none;
   }
 }
+
+/* Closing screen avatar (GraphJourney): a soft amber halo so the disc glows
+   against the night sky the way the galaxy does, rather than sitting flat. */
+.closing-avatar {
+  filter: drop-shadow(0 0 48px color-mix(in srgb, #f3b645 22%, transparent));
+}
+
+/* Closing screen name: ~¾ of the hero size, so it balances the avatar beside
+   it instead of competing with it. The opening hero keeps the full size.
+   Unlayered, so it beats the t-name-* utilities' font-size. */
+.closing-name {
+  font-size: clamp(40px, 6.6vw, 92px);
+}
+.closing-name.t-name-unbounded {
+  font-size: clamp(28px, 4.5vw, 62px);
+}

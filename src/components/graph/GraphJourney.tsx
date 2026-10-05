@@ -25,6 +25,7 @@ import { AskChat } from '@/components/ask/AskChat';
 import { buildMatcher } from '@/components/archive/cite';
 import { Compare } from '@/components/studio/Compare';
 import { SplitFlap } from '@/components/studio/SplitFlap';
+import { Reveal } from '@/components/core/Reveal';
 import { prefillAsk } from '@/lib/ask';
 import type { Project } from '@/lib/content';
 // Everything here comes from the admin-editable store, not content.ts directly.
@@ -1668,9 +1669,32 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           the same composition twice, which is what makes it read as an ending
           rather than as one more screenful.
         */}
+        {/*
+          The closing screen also shows your full avatar beside the name — the
+          opening is name + galaxy, the ending is name + the person behind it.
+          The avatar's background is cut away (not the circle), so the hair
+          breaks out over the top of the amber disc. Fades and rises in once,
+          the first time it scrolls into view.
+        */}
         <div className="shell flex min-h-screen items-center">
-          <div className="w-full max-w-[640px] pointer-events-auto">
-            <h2 className={`${nameClass} text-bone`}>{profile.name}</h2>
+          <div className="pointer-events-auto flex w-full max-w-[920px] flex-col items-start gap-[28px] lg:flex-row lg:items-center lg:gap-[36px]">
+            <Reveal className="shrink-0">
+              <img
+                src="/avatar/avatar-1024.png"
+                alt={`Illustrated portrait of ${profile.name}`}
+                loading="lazy"
+                decoding="async"
+                draggable={false}
+                className="closing-avatar h-auto w-[clamp(160px,16vw,240px)] select-none"
+              />
+            </Reveal>
+            <Reveal delay={120}>
+              <h2 className={`${nameClass} closing-name text-bone`}>
+                {first}
+                <br />
+                {rest.join(' ')}
+              </h2>
+            </Reveal>
           </div>
         </div>
 
