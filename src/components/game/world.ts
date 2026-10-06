@@ -958,7 +958,6 @@ export function buildWorld(projects: Project[], profile: Profile): BuiltWorld {
   galleryGroup.name = 'gallery';
 
   /** Plaque geometry, needed here to keep pitch and overlap honest. */
-  const PLAQUE_W = 0.95;
   const PLAQUE_PITCH = 1.05; // 0.95 wide, so this leaves a visible gap
 
   /*
