@@ -6,7 +6,14 @@ import { fileURLToPath, URL } from 'node:url';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: [
+      // See src/shims/three-webgpu.ts — keeps a second copy of three.js out of the graph chunk.
+      {
+        find: /^three\/webgpu$/,
+        replacement: fileURLToPath(new URL('./src/shims/three-webgpu.ts', import.meta.url)),
+      },
+      { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+    ],
   },
   server: {
     port: 3000,
@@ -18,13 +25,5 @@ export default defineConfig({
   },
   build: {
     target: 'es2020',
-    rollupOptions: {
-      output: {
-        // Keep the constellation and its layout solver out of the entry chunk.
-        manualChunks(id) {
-          if (id.includes('src/components/graph/Constellation')) return 'constellation';
-        },
-      },
-    },
   },
 });

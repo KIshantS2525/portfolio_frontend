@@ -19,7 +19,12 @@ import {
   type StackRow,
   type Metric,
 } from '@/lib/content';
-import { normaliseColors, setColorOverrides, type ColorOverrides } from '@/lib/colorOverrides';
+import {
+  getColorOverrides,
+  normaliseColors,
+  setColorOverrides,
+  type ColorOverrides,
+} from '@/lib/colorOverrides';
 
 /**
  * The single source of truth for content the site renders.
@@ -170,8 +175,23 @@ function start() {
       // In the admin's live preview, the panel's unsaved tree wins.
       if (previewing) return;
       const parsed = normaliseTree(raw);
-      if (parsed) setColorOverrides(parsed.colors);
-      emit({ content: parsed ?? STATIC_TREE, ready: true });
+      if (!parsed) {
+        emit({ content: STATIC_TREE, ready: true });
+        return;
+      }
+      /*
+       * Only hand out new objects when something actually changed. Every
+       * fresh object here — even with identical contents — re-derives the
+       * graph's nodes and figures and rebuilds the 75k-particle dust cloud,
+       * which showed up as a hitch a moment after load. If the comparison
+       * says "different" for any reason (even key order), this falls back to
+       * exactly the old behaviour.
+       */
+      const sameColors =
+        JSON.stringify(normaliseColors(parsed.colors)) === JSON.stringify(getColorOverrides());
+      if (!sameColors) setColorOverrides(parsed.colors);
+      const sameContent = sameTree(parsed, snapshot.content);
+      emit({ content: sameContent ? snapshot.content : parsed, ready: true });
     })
     .catch(() => {
       if (previewing) return;
@@ -180,6 +200,13 @@ function start() {
       // it don't sit forever.
       emit({ content: STATIC_TREE, ready: true });
     });
+}
+
+/** Content equality, ignoring `colors` (compared separately against the live overrides). */
+function sameTree(a: ContentTree, b: ContentTree): boolean {
+  const { colors: _a, ...restA } = a;
+  const { colors: _b, ...restB } = b;
+  return JSON.stringify(restA) === JSON.stringify(restB);
 }
 
 /* ── admin live preview ─────────────────────────────────────────────────── */

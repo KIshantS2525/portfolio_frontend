@@ -135,6 +135,25 @@ export function AnimatedDiagram({
       root.prepend(defs);
     }
     let maskN = 0;
+    /*
+     * The edge-draw masks need a region that covers the diagram. This used to
+     * be a fixed 100,000 x 100,000 square, and once the draw animations had
+     * played, Chrome composited layers of that size and kept them — enough to
+     * exhaust its tile memory, so sections further down (the doors) painted
+     * blank or flickered. The viewBox (set by fitToContent above) bounds
+     * everything that can ever be on screen, so the mask covers that plus a
+     * full diagram's width and height of margin on every side.
+     */
+    const vbox = root.viewBox.baseVal;
+    const maskRegion =
+      vbox && vbox.width > 0 && vbox.height > 0
+        ? {
+            x: vbox.x - vbox.width,
+            y: vbox.y - vbox.height,
+            w: vbox.width * 3,
+            h: vbox.height * 3,
+          }
+        : { x: -50000, y: -50000, w: 100000, h: 100000 };
 
     /** Wrap an edge's visible strokes in a mask that draws itself; returns end time. */
     const drawEdge = (strokes: Element[], delay: number, duration: number) => {
@@ -144,10 +163,10 @@ export function AnimatedDiagram({
       const id = `${uid}m${maskN++}`;
       mask.setAttribute('id', id);
       mask.setAttribute('maskUnits', 'userSpaceOnUse');
-      mask.setAttribute('x', '-50000');
-      mask.setAttribute('y', '-50000');
-      mask.setAttribute('width', '100000');
-      mask.setAttribute('height', '100000');
+      mask.setAttribute('x', String(maskRegion.x));
+      mask.setAttribute('y', String(maskRegion.y));
+      mask.setAttribute('width', String(maskRegion.w));
+      mask.setAttribute('height', String(maskRegion.h));
       const holder = document.createElementNS(SVG_NS, 'g');
       holder.setAttribute('class', 'ds-holder');
       container.insertBefore(holder, strokes[0]);

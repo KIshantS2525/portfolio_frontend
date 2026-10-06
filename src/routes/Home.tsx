@@ -51,7 +51,14 @@ export default function Home() {
           waiting on itself. The Suspense boundary still keeps the heavy
           three.js chunk out of the initial bundle either way.
         */}
-        <WhenVisible>
+        {/*
+          rootMargin 0: the default 200px kept the whole galaxy (84k particles
+          plus its WebGL render) running through the first 200px of the
+          timeline below it, where none of it is on screen. Scrolling back up,
+          the black hole screen enters first and the galaxy layer is a full
+          screen above it, so the galaxy restarts well before it is visible.
+        */}
+        <WhenVisible rootMargin="0px">
           <Suspense fallback={<div className="bg-void" style={{ height: '1100vh' }} aria-hidden />}>
             <GraphJourney projects={projects} />
           </Suspense>

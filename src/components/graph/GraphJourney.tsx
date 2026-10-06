@@ -1,5 +1,5 @@
 // frontend/src/components/graph/GraphJourney.tsx
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import SpriteText from 'three-spritetext';
@@ -1190,7 +1190,10 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     if (!fg || !size.w || !map) return;
     const scene = fg.scene?.();
     if (!scene) return;
-    const cloud = new DustCloud(DUST_COUNT, colors.dust, map, theme !== 'light');
+    // Only the shaped particles are allocated. The FIELD_COUNT tail used to be
+    // allocated too and written to zero every frame (the page sky replaced it),
+    // which cost uploads and draws for 8,800 invisible sprites.
+    const cloud = new DustCloud(shaped, colors.dust, map, theme !== 'light');
     for (const points of cloud.objects) scene.add(points);
     dust.current = cloud;
 
@@ -1229,9 +1232,17 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
       for (const t of glowTex) t.dispose();
       glowRef.current = null;
     };
-  }, [size.w, size.h, colors, theme]);
+  }, [size.w, size.h, colors, theme, shaped]);
 
-  const nodeObject = (raw: Node3D) => {
+  /*
+   * Stable across renders on purpose. react-force-graph treats a new
+   * `nodeThreeObject` function (or a new `graphData` object) as a change and
+   * destroys and rebuilds every node sprite and label — which used to happen
+   * on every hover, select and citation, because both were recreated on each
+   * render. Everything per-frame (scale, colour, opacity, label visibility)
+   * is written by the tick loop, so reusing the objects changes nothing visible.
+   */
+  const nodeObject = useCallback((raw: Node3D) => {
     const group = new THREE.Group();
     const dot = new THREE.Sprite(
       new THREE.SpriteMaterial({
@@ -1278,11 +1289,21 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     }
 
     return group;
-  };
+  }, [theme, palette.text, palette.textBody]);
+  const graphData = useMemo(() => ({ nodes: nodes as never, links: [] }), [nodes]);
 
+  /*
+   * Drop entries for nodes that no longer exist. This used to clear both maps
+   * outright, which only worked because every render rebuilt every node
+   * object and refilled them; with the objects now reused, a blanket clear
+   * could land after the rebuild and leave the tick with nothing to animate.
+   * Rebuilt nodes overwrite their own entries in nodeObject, so pruning is
+   * all that is needed and is safe in either order.
+   */
   useEffect(() => {
-    dots.current.clear();
-    labels.current.clear();
+    const live = new Set(nodes.map((n) => n.id));
+    for (const id of [...dots.current.keys()]) if (!live.has(id)) dots.current.delete(id);
+    for (const id of [...labels.current.keys()]) if (!live.has(id)) labels.current.delete(id);
   }, [nodes]);
 
   /**
@@ -1349,12 +1370,28 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
     const phase = idleS.phase;
     const pA: [number, number, number] = [0, 0, 0];
     const pB: [number, number, number] = [0, 0, 0];
+    /*
+     * Whether the figure layer is parked: at progress 1 the slot has been
+     * lifted a full screen (see `up` below), so the figure is entirely off
+     * screen while the black hole fills it. Rendering 75k particles nobody
+     * can see on top of the ray tracer was the stutter around the black hole,
+     * so while parked the per-particle work is skipped and the graph's own
+     * render loop is paused. null forces the first frame to apply the state —
+     * the visibility effect above may have just resumed the loop.
+     */
+    let parked: boolean | null = null;
     const tick = () => {
       const el = outerRef.current;
       if (el) {
         const rect = el.getBoundingClientRect();
         const scrollable = Math.max(1, rect.height - window.innerHeight);
         const progress = reduced ? 0 : clamp01(-rect.top / scrollable);
+        const offscreen = progress >= 1;
+        if (offscreen !== parked) {
+          parked = offscreen;
+          if (offscreen) fgRef.current?.pauseAnimation?.();
+          else fgRef.current?.resumeAnimation?.();
+        }
 
         const segF = progress * SEG_COUNT;
         const segIdx = Math.min(SEG_COUNT - 1, Math.floor(segF));
@@ -1571,7 +1608,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
 
         const fromN = figures[fromKey];
         const toN = figures[toKey];
-        for (let i = 0; i < nodes.length; i++) {
+        for (let i = 0; i < (offscreen ? 0 : nodes.length); i++) {
           const n = nodes[i];
           interp(fromN.pos, toN.pos, i, true);
           const [x, y, z] = out;
@@ -1630,7 +1667,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
 
         /* The dust: same interpolation, same rotation, same pan, its own colours. */
         const cloud = dust.current;
-        if (cloud) {
+        if (cloud && !offscreen) {
           cloud.begin(1, back);
           // Gas on paper needs more ink than light on black to read at the same strength.
           const inkBoost = theme === 'light' ? 1.45 : 1;
@@ -1656,13 +1693,13 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           }
           // The graph's own background star slab is off: the page sky
           // (SkyBackdrop) is the one star layer, so the Hero never shows two.
-          for (let i = 0; i < FIELD_COUNT; i++) cloud.set(shaped + i, 0, 0, 0, 0, 0);
+          // Those particles are no longer allocated at all (see DustCloud above).
           cloud.end();
         }
 
         /* The figure's glow: follows the pan, fades and recolours with it. */
         const glows = glowRef.current;
-        if (glows) {
+        if (glows && !offscreen) {
           const gF = GLOW[fromKey];
           const gT = GLOW[toKey];
           const a = gF.a + (gT.a - gF.a) * localT;
@@ -1782,7 +1819,7 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
               ref={fgRef}
               width={size.w}
               height={size.h}
-              graphData={{ nodes: nodes as never, links: [] }}
+              graphData={graphData}
               backgroundColor="rgba(0,0,0,0)"
               showNavInfo={false}
               numDimensions={3}
@@ -2168,7 +2205,9 @@ function StaticSphere({ nodes, onPick }: { nodes: Node3D[]; onPick: (n: Node3D) 
     else fg.pauseAnimation?.();
   }, [visible, size.w]);
 
-  const nodeObject = (raw: Node3D) => {
+  // Stable for the same reason as the desktop journey's nodeObject: a new
+  // function or graphData object makes react-force-graph rebuild every node.
+  const nodeObject = useCallback((raw: Node3D) => {
     const dot = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: (raw.kind === 'person' ? orb.current : texture.current) ?? undefined,
@@ -2182,7 +2221,8 @@ function StaticSphere({ nodes, onPick }: { nodes: Node3D[]; onPick: (n: Node3D) 
     const d = raw.dot * 3;
     dot.scale.set(d, d, 1);
     return dot;
-  };
+  }, [theme]);
+  const graphData = useMemo(() => ({ nodes: nodes as never, links: [] }), [nodes]);
 
   return (
     <div ref={outerRef} className="h-full w-full">
@@ -2191,7 +2231,7 @@ function StaticSphere({ nodes, onPick }: { nodes: Node3D[]; onPick: (n: Node3D) 
           ref={fgRef}
           width={size.w}
           height={size.h}
-          graphData={{ nodes: nodes as never, links: [] }}
+          graphData={graphData}
           backgroundColor="rgba(0,0,0,0)"
           showNavInfo={false}
           numDimensions={3}

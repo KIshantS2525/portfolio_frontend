@@ -24,13 +24,28 @@ export function SpotlightPanel({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const onMove = (e: MouseEvent) => {
+    // Still listens on the whole document — the ring's 300px glow lights up
+    // before the cursor reaches the panel — but measures and writes at most
+    // once per frame, with the latest pointer position.
+    let raf = 0;
+    let x = 0;
+    let y = 0;
+    const apply = () => {
+      raf = 0;
       const r = el.getBoundingClientRect();
-      el.style.setProperty('--sx', `${e.clientX - r.left}px`);
-      el.style.setProperty('--sy', `${e.clientY - r.top}px`);
+      el.style.setProperty('--sx', `${x - r.left}px`);
+      el.style.setProperty('--sy', `${y - r.top}px`);
+    };
+    const onMove = (e: MouseEvent) => {
+      x = e.clientX;
+      y = e.clientY;
+      if (!raf) raf = requestAnimationFrame(apply);
     };
     document.addEventListener('mousemove', onMove);
-    return () => document.removeEventListener('mousemove', onMove);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      cancelAnimationFrame(raf);
+    };
   }, []);
 
   return (
