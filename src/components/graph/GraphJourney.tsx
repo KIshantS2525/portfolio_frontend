@@ -1948,18 +1948,17 @@ function DesktopJourney({ className, projects }: { className?: string; projects?
           rather than as one more screenful.
         */}
         {/*
-          The closing screen also shows your full avatar beside the name — the
+          The closing screen also shows your portrait beside the name — the
           opening is name + galaxy, the ending is name + the person behind it.
-          The avatar's background is cut away (not the circle), so the hair
-          breaks out over the top of the amber disc. Fades and rises in once,
-          the first time it scrolls into view.
+          A black-and-white photo in a clean circle, transparent outside it.
+          Fades and rises in once, the first time it scrolls into view.
         */}
         <div className="shell flex min-h-screen items-center">
           <div className="pointer-events-auto flex w-full max-w-[920px] flex-col items-start gap-[28px] lg:flex-row lg:items-center lg:gap-[36px]">
             <Reveal className="shrink-0">
               <img
                 src="/avatar/avatar-1024.png"
-                alt={`Illustrated portrait of ${profile.name}`}
+                alt={`Portrait of ${profile.name}`}
                 loading="lazy"
                 decoding="async"
                 draggable={false}

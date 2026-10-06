@@ -808,7 +808,9 @@
 /* Closing screen avatar (GraphJourney): a soft amber halo so the disc glows
    against the night sky the way the galaxy does, rather than sitting flat. */
 .closing-avatar {
-  filter: drop-shadow(0 0 48px color-mix(in srgb, #f3b645 22%, transparent));
+  /* A cool, neutral halo for the black-and-white portrait — the amber glow
+     belonged to the old illustrated disc. */
+  filter: drop-shadow(0 0 48px rgba(200, 214, 255, 0.14));
 }
 
 /* Closing screen name: ~¾ of the hero size, so it balances the avatar beside

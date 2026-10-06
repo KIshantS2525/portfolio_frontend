@@ -8,15 +8,13 @@
  */
 
 /**
- * Brand mark: your avatar — the full amber disc, crown included, with the
- * hair breaking out over the top edge (the background is cut away, not the
- * circle). Image lives in public/avatar/; the 256px file stays sharp up to
- * ~85px on a 3× screen.
+ * Brand mark: your black-and-white portrait in a circle, transparent outside
+ * it. Image lives in public/avatar/; the 256px file stays sharp up to ~85px
+ * on a 3× screen.
  *
- * The browser-tab icon is NOT this whole disc — a full portrait turns to
- * mush at 16px. It is a tighter head crop of the same avatar, on the same
- * amber: public/favicon.ico, favicon-16/32.png and apple-touch-icon.png,
- * linked from index.html.
+ * The browser-tab icon is separate (public/favicon.ico, favicon-16/32.png
+ * and apple-touch-icon.png, linked from index.html) — a full portrait turns
+ * to mush at 16px.
  */
 export function Mark({ size = 32 }: { size?: number }) {
   return (
