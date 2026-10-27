@@ -1,0 +1,134 @@
+/* src/components/figures/plate.css
+ *
+ * The figure plate at the head of a project sheet. One frame for both kinds of
+ * figure — Hairline's stock line drawings and the bespoke Anatomy machines —
+ * so the sheet reads the same whichever one it carries.
+ *
+ * The plate is a recessed well, a shade darker than the sheet panel
+ * (--surface-raised). Every fill in both libraries is "paper": it has to equal
+ * the well's colour exactly, or plates and solids show as patches. So the well
+ * colour is defined once here and handed to both.
+ */
+
+.fig-plate {
+  --fig-well: #070b20;
+
+  position: relative;
+  margin: 0;
+  border-radius: 18px;
+  background: var(--fig-well);
+  box-shadow:
+    inset 0 0 0 1px var(--hairline),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Corner furniture: Fig n, title, hint, live readout. */
+.fig-corner {
+  position: absolute;
+  z-index: 1;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--anatomy-muted);
+  pointer-events: none;
+}
+.fig-corner[data-corner='fig'] { top: 18px; left: 20px; color: var(--anatomy-text); }
+.fig-corner[data-corner='title'] { top: 18px; right: 20px; text-transform: uppercase; letter-spacing: 0.12em; }
+.fig-corner[data-corner='hint'] { bottom: 18px; left: 20px; text-transform: uppercase; letter-spacing: 0.12em; }
+.fig-corner[data-corner='readout'] {
+  bottom: 18px;
+  right: 20px;
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.fig-stage {
+  padding: 46px 16px 44px;
+  touch-action: pan-y;
+}
+.fig-stage:focus-visible {
+  outline: 1px solid var(--anatomy-muted);
+  outline-offset: -8px;
+  border-radius: 14px;
+}
+
+/* Hairline: a 5:4 figure, held narrow so the plate stays about as tall as an Anatomy one. */
+.fig-hairline {
+  width: min(100%, 330px);
+  margin: 0 auto;
+  --hairline-plate: var(--fig-well);
+  --hairline-hi: #ffffff;
+  --hairline-edge: #c9cde6;
+  --hairline-mid: #5a628c;
+  --hairline-lo: #262d55;
+  --hairline-stroke: 0.9;
+}
+/* Before the library lands, hold the box so nothing shifts. */
+.fig-hairline:empty { aspect-ratio: 5 / 4; }
+
+/* Anatomy: tokens retuned from the kit's neutral greys to the site's night navy. */
+.fig-plate.iso {
+  --anatomy-card: var(--fig-well);
+  --anatomy-paper: var(--fig-well);
+  --anatomy-text: #a3a8c6;
+  --anatomy-strong: #eef0fb;
+  --anatomy-muted: #6b7199;
+  --anatomy-face: #131a3c;
+  --anatomy-top: #151d44;
+  --anatomy-shade-0: #080c23;
+  --anatomy-shade-1: #0b102a;
+  --anatomy-shade-2: #0e1432;
+  --anatomy-shade-3: #12183a;
+  --anatomy-lit-top: #212b5e;
+  --anatomy-lit-shade: #182152;
+  --anatomy-hi: #d5d9f0;
+  --anatomy-mid: #5f6795;
+  --anatomy-lo: #363e68;
+  --anatomy-faint: #20274c;
+  --anatomy-lit: #ffffff;
+  --anatomy-halo: #01020a;
+  --anatomy-halo-opacity: 0.95;
+  --anatomy-dot: #e7e9f7;
+}
+.fig-anatomy .iso-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* OmniTrace's rule lamps: a dim lens, and one that lights when its rule fires. */
+.fig-lens {
+  fill: var(--anatomy-faint);
+  transition: fill 240ms ease;
+}
+[data-lamp][data-on] .fig-lens {
+  fill: var(--anatomy-lit);
+  filter: drop-shadow(0 0 1.6px #fff) drop-shadow(0 0 4px rgba(255, 255, 255, 0.55));
+}
+
+@media (max-width: 560px) {
+  .fig-stage { padding: 42px 4px 58px; }
+  /* Hint above, readout below: side by side they collide at 390px. */
+  .fig-corner[data-corner='hint'] { bottom: 38px; }
+  .fig-corner[data-corner='readout'] { left: 20px; right: auto; }
+  /* Small parts get too small at 390px wide; let the drawing run a little past the well. */
+  .fig-anatomy .iso-svg { width: 108%; margin-left: -4%; }
+}
+
+/* Recall: cards that are not among the nearest step down a tone, so the three that rise carry the eye. */
+[data-card]:not([data-top]) .iso-edge[data-tone='hi'] { stroke: var(--anatomy-mid); }
+[data-card]:not([data-top]) .iso-line[data-tone='lo'] { stroke: var(--anatomy-faint); }
+[data-card] .iso-edge { transition: stroke 300ms ease; }
+
+/* DiagramStudio: punched holes, edges that appear once read, and the reader's tell-tales. */
+.fig-hole { fill: #02040d; stroke: var(--anatomy-lo); stroke-width: 0.4; }
+.fig-edge { opacity: 0; transition: opacity 380ms ease; }
+.fig-edge[data-on] { opacity: 1; }
+.fig-tell { fill: var(--anatomy-faint); stroke: var(--anatomy-lo); stroke-width: 0.5; transition: fill 120ms ease; }
+.fig-tell[data-on] { fill: var(--anatomy-lit); filter: drop-shadow(0 0 1.4px #fff) drop-shadow(0 0 3.5px rgba(255, 255, 255, 0.5)); }
+@media (prefers-reduced-motion: reduce) { .fig-edge, .fig-tell, [data-card] .iso-edge { transition: none; } }

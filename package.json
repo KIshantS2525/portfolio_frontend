@@ -11,9 +11,11 @@
     "export-bio": "node scripts/export-bio.mjs",
     "typecheck": "tsc --noEmit",
     "gen-theme": "node scripts/gen-theme.mjs",
-    "gen-logos": "node scripts/gen-logos.mjs"
+    "gen-logos": "node scripts/gen-logos.mjs",
+    "figures": "node figures/omnitrace/build.mjs && node figures/recall/build.mjs && node figures/diagramstudio/build.mjs"
   },
   "dependencies": {
+    "@lucasmarkes/hairline": "^0.5.1",
     "lenis": "^1.1.18",
     "motion": "^11.15.0",
     "pullcord": "^0.1.0",

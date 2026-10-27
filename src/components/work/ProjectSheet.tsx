@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project } from '@/lib/content';
 import { askAndScroll } from '@/lib/ask';
+import { ProjectFigure } from '@/components/figures/ProjectFigure';
 
 /**
  * The full story of one project, in a sheet from the right.
@@ -139,7 +140,10 @@ export function ProjectSheet({
           className="flex-1 overflow-y-auto overscroll-contain px-[24px] pb-[48px] md:px-[40px]"
         >
           <div key={p.slug} className="sheet-content">
-            <p className="mt-[24px] text-[14px] tabular-nums text-saffron">{p.year}</p>
+            <div className="mt-[16px]">
+              <ProjectFigure project={p} index={shown} />
+            </div>
+            <p className="mt-[28px] text-[14px] tabular-nums text-saffron">{p.year}</p>
             <h3 id="sheet-title" className="t-heading mt-[8px] text-bone">
               {p.name}
             </h3>
